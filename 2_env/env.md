@@ -1,119 +1,95 @@
-# Lesson 2 — Virtual Environments: virtualenv & conda
-**Block 2 — Python Environment | Duration: 90 minutes | Level: Intermediate/Advanced**
+# Урок 2 — Виртуальные окружения: virtualenv и conda
+**Блок 2 — Окружение Python**
 
 ---
 
-## Learning Objectives
+### Зачем изолировать окружения?
 
-By the end of this lesson, students will be able to:
-1. Explain why environment isolation matters and what "dependency hell" looks like in practice.
-2. Create, activate, and pin dependencies using both `venv`/`pip` and `conda`.
-3. Set up a reproducible project scaffold that they will reuse for the rest of the course.
+**Ключевые проблемы, которые решает изоляция:**
 
----
-
-## Minute-by-Minute Plan
-
-### 0–15 | Why Isolate Environments?
-
-**Goal:** Make the problem visceral before introducing the solution.
-
-**Scenario to discuss:**
-> You trained an ML model six months ago. A colleague runs your script today and gets a different result — not because of the data, but because `pandas` was upgraded from `1.5` to `2.0` and the `groupby` behavior changed silently.
-
-**Core problems isolation solves:**
-
-| Problem | Root cause | Solution |
+| Проблема | Первопричина | Решение |
 |---|---|---|
-| "Works on my machine" | Different package versions | Lock versions per project |
-| System Python corruption | Global `pip install` gone wrong | Per-project environments |
-| Python version conflicts | Project A needs 3.9, Project B needs 3.11 | conda environments |
-| Onboarding friction | No reproducible setup | `requirements.txt` / `environment.yml` |
+| «У меня работает» | Разные версии пакетов | Фиксируйте версии для каждого проекта |
+| Повреждение системного Python | Некорректный глобальный `pip install` | Окружения для каждого проекта |
+| Конфликты версий Python | Проект A требует 3.9, проект B — 3.11 | Окружения conda |
+| Трудности с онбордингом | Нет воспроизводимой настройки | `requirements.txt` / `environment.yml` |
 
-**Analogy:** A virtual environment is like a Docker container for your Python interpreter — lightweight, disposable, reproducible.
-
----
-
-### 15–40 | `venv` and `pip`
-
-#### Creating and activating
+#### Создание и активация
 ```bash
-# Create environment in the project directory
+# Создаём окружение в директории проекта
 python -m venv .venv
 
-# Activate (Linux/macOS)
+# Активация (Linux/macOS)
 source .venv/bin/activate
 
-# Activate (Windows)
+# Активация (Windows)
 .venv\Scripts\activate
 
-# Confirm you're inside
-which python           # should point to .venv/bin/python
+# Проверяем, что находимся внутри окружения
+which python           # должно указывать на .venv/bin/python
 python --version
 ```
 
-#### Installing and freezing
+#### Установка пакетов и фиксация версий
 ```bash
 pip install pandas==2.1.0 numpy==1.26.0 requests
 
-# Freeze exact installed versions
+# Зафиксировать точные установленные версии
 pip freeze > requirements.txt
 
-# Install from requirements on another machine
+# Установить из requirements на другой машине
 pip install -r requirements.txt
 ```
 
-#### Version pinning strategies
+#### Стратегии фиксации версий
 ```
-# requirements.txt — exact pin (production/reproducibility)
+# requirements.txt — точная фиксация (для production / воспроизводимости)
 pandas==2.1.0
 numpy==1.26.0
 
-# requirements-dev.txt — range (libraries, flexibility)
+# requirements-dev.txt — диапазон (для библиотек, гибкость)
 pandas>=2.0,<3.0
 numpy>=1.25
 ```
 
-**When to use exact pins:** shared analysis repos, published results, CI pipelines.  
-**When to use ranges:** libraries you publish for others to install.
+**Когда использовать точную фиксацию:** общие репозитории с анализом, опубликованные результаты, CI-пайплайны.  
+**Когда использовать диапазоны:** библиотеки, которые вы публикуете для других.
 
-#### Deactivating
+#### Деактивация
 ```bash
 deactivate
 ```
 
 ---
 
-### 40–65 | conda
+#### Когда необходима conda
+- Пакеты с нативными расширениями на C/Fortran (например, MKL-ускоренный NumPy, некоторые конфигурации PySpark).
+- Необходимо управлять самой версией Python (не только пакетами).
+- Стеки для data science / научных вычислений под Windows.
 
-#### When conda is necessary
-- Packages with native C/Fortran extensions (e.g., MKL-accelerated NumPy, some PySpark setups).
-- Need to manage Python version itself (not just packages).
-- Data science / scientific computing stacks on Windows.
-
-#### Core commands
+#### Основные команды
 ```bash
-# Create a new environment
+# Создать новое окружение
 conda create -n course-env python=3.11
 
-# Activate
+# Активировать
 conda activate course-env
 
-# Install packages (prefer conda-forge channel)
+# Установить пакеты (предпочтителен канал conda-forge)
 conda install -c conda-forge pandas numpy jupyterlab
 
-# Mix: use conda for compiled deps, pip for the rest
+# Смешанный вариант: conda для скомпилированных зависимостей, pip — для остального
 conda install -c conda-forge numpy
 pip install polars streamlit
 
-# Export
+# Экспорт
 conda env export > environment.yml
 
-# Recreate on another machine
+# Воссоздать на другой машине
 conda env create -f environment.yml
 ```
 
-#### environment.yml structure
+#### Структура environment.yml
 ```yaml
 name: course-env
 channels:
@@ -128,41 +104,39 @@ dependencies:
     - streamlit==1.30.0
 ```
 
-#### conda vs pip — decision rule
+#### conda vs pip — правило выбора
 ```
-Need to manage Python version itself?      → conda
-Package has heavy C/Fortran native code?   → conda (install via conda-forge)
-Pure Python package?                       → pip is fine
-Mixed stack (scientific + web)?            → conda for base + pip for extras
+Нужно управлять самой версией Python?             → conda
+Пакет содержит тяжёлый нативный код (C/Fortran)?  → conda (установить через conda-forge)
+Чистый Python-пакет?                              → pip подойдёт
+Смешанный стек (научный + веб)?                   → conda для базы + pip для остального
 ```
 
 ---
 
-### 65–80 | Project Structure
-
-**Goal:** Students leave with a scaffold they keep for the entire course.
+### Структура проекта
 
 ```
 my_project/
-├── .venv/                  # or conda env (gitignored)
+├── .venv/                  # или conda-окружение (добавить в .gitignore)
 ├── data/
-│   ├── raw/                # never modify raw files
+│   ├── raw/                # сырые файлы — никогда не изменять
 │   └── processed/
-├── notebooks/              # exploration only
+├── notebooks/              # только для исследований
 ├── src/
-│   └── my_project/         # importable package
+│   └── my_project/         # импортируемый пакет
 │       ├── __init__.py
 │       └── utils.py
 ├── tests/
-├── .env                    # secrets — NEVER commit
+├── .env                    # секреты — НИКОГДА не коммитить
 ├── .gitignore
 ├── requirements.txt
 └── README.md
 ```
 
-#### .gitignore essentials
+#### Необходимые записи в .gitignore
 ```gitignore
-# Environments
+# Окружения
 .venv/
 env/
 __pycache__/
@@ -170,12 +144,12 @@ __pycache__/
 *.pyo
 .ipynb_checkpoints/
 
-# Secrets
+# Секреты
 .env
 *.key
 *.pem
 
-# Data (often too large for git)
+# Данные (часто слишком велики для git)
 data/raw/
 data/processed/
 *.parquet
@@ -187,43 +161,21 @@ data/processed/
 pip install python-dotenv
 ```
 
-```python
-# .env (never commit this)
-DATABASE_URL=postgresql://user:password@localhost/mydb
-API_KEY=sk-abc123
-
-# src/my_project/config.py
-from pathlib import Path
-from dotenv import load_dotenv
-import os
-
-load_dotenv(Path(__file__).parent.parent.parent / ".env")
-
-DB_URL = os.environ["DATABASE_URL"]
-API_KEY = os.environ["API_KEY"]
-```
-
-**Why not hardcode secrets?**
-- Git history is permanent — even a deleted secret may be recoverable.
-- Public repos expose secrets to the entire internet instantly.
-
 ---
 
-### 80–90 | Lab: Side-by-Side Setup
+### Практика: параллельная настройка
 
-**Students do this themselves while instructor circulates.**
-
-**Task:** Set up the course project with the same dependencies using both tools.
+**Задание:** Настроить учебный проект с одинаковыми зависимостями двумя способами.
 
 ```bash
-# Part A — venv
+# Часть A — venv
 python -m venv .venv-pip
 source .venv-pip/bin/activate
 pip install pandas==2.1.0 numpy==1.26.0 polars==0.20.0
 pip freeze > requirements.txt
 deactivate
 
-# Part B — conda
+# Часть B — conda
 conda create -n course-conda python=3.11 -y
 conda activate course-conda
 conda install -c conda-forge numpy=1.26.0 pandas=2.1.0 -y
@@ -232,72 +184,18 @@ conda env export > environment.yml
 conda deactivate
 ```
 
-**Reflection questions:**
-1. Which approach felt faster? Why?
-2. How would you share this environment with a colleague who only has pip?
-3. What happens if you `pip install` inside a conda environment?
+**Вопросы для размышления:**
+1. Какой подход показался быстрее? Почему?
+2. Как вы поделитесь этим окружением с коллегой, у которого есть только pip?
+3. Что произойдёт, если выполнить `pip install` внутри conda-окружения?
 
 ---
 
-## Live Demo Script
-
-```bash
-# Instructor runs this live, narrating each step
-
-# --- venv demo ---
-mkdir demo_project && cd demo_project
-python -m venv .venv
-source .venv/bin/activate
-pip install pandas requests
-pip freeze                         # show messy output
-pip freeze > requirements.txt
-cat requirements.txt               # show the pin file
-deactivate
-
-# --- conda demo ---
-conda create -n demo-conda python=3.11 pandas requests -y
-conda activate demo-conda
-conda env export > environment.yml
-cat environment.yml                # compare structure to requirements.txt
-
-# --- python-dotenv demo ---
-echo "API_KEY=supersecret" > .env
-python -c "
-from dotenv import load_dotenv
-import os
-load_dotenv()
-print('Key loaded:', bool(os.getenv('API_KEY')))
-"
-conda deactivate
-```
-
 ---
 
-## Check for Understanding
+## Материалы и ресурсы
 
-**Exit ticket — 4 questions (answered on paper/chat at minute 88):**
-
-1. Your colleague sends you `environment.yml`. What single command recreates their environment?
-   > `conda env create -f environment.yml`
-
-2. Why should `.env` be in `.gitignore`?
-   > It contains secrets (API keys, passwords). Git history is permanent; once pushed, secrets are compromised.
-
-3. What is wrong with this `requirements.txt`?
-   ```
-   pandas
-   numpy
-   ```
-   > No version pins. Another developer (or future you) will get whatever the latest version is, which may behave differently. Use `pandas==2.1.0` etc.
-
-4. When would you choose conda over venv?
-   > When you need to manage the Python version itself, when packages require compiled native extensions (e.g., MKL NumPy), or on Windows where building C extensions with pip is painful.
-
----
-
-## Materials & Resources
-
-- [venv docs](https://docs.python.org/3/library/venv.html)
-- [conda cheatsheet](https://docs.conda.io/projects/conda/en/stable/user-guide/cheatsheet.html)
+- [Документация venv](https://docs.python.org/3/library/venv.html)
+- [Шпаргалка conda](https://docs.conda.io/projects/conda/en/stable/user-guide/cheatsheet.html)
 - [python-dotenv](https://pypi.org/project/python-dotenv/)
-- Course repo template: `github.com/course/template` (provided by instructor)
+- Шаблон репозитория курса: `github.com/course/template` (предоставляет преподаватель)
