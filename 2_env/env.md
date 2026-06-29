@@ -1,37 +1,126 @@
-# Урок 2 — Виртуальные окружения: virtualenv и conda
-**Блок 2 — Окружение Python**
+# Урок 2 — Виртуальные окружения, Jupyter и организация проекта
+**Блок 2 — Окружение Python** · ⏱ 90 минут
 
 ---
 
-### Зачем изолировать окружения?
+## Программа урока
 
-**Ключевые проблемы, которые решает изоляция:**
+| # | Тема | Время |
+|---|------|-------|
+| 1 | Зачем изолировать окружения | 10 мин |
+| 2 | Как работает venv изнутри | 15 мин |
+| 3 | virtualenv и рабочие приёмы | 15 мин |
+| 4 | conda: когда и как | 15 мин |
+| 5 | Jupyter: настройка и советы | 15 мин |
+| 6 | Организация проекта | 10 мин |
+| 7 | Практика | 10 мин |
+
+---
+
+## 1. Зачем изолировать окружения?
+
+Когда Python устанавливает пакеты без изоляции, все они попадают в одно глобальное пространство. Это быстро приводит к конфликтам.
 
 | Проблема | Первопричина | Решение |
 |---|---|---|
 | «У меня работает» | Разные версии пакетов | Фиксируйте версии для каждого проекта |
-| Повреждение системного Python | Некорректный глобальный `pip install` | Окружения для каждого проекта |
-| Конфликты версий Python | Проект A требует 3.9, проект B — 3.11 | Окружения conda |
+| Сломанный системный Python | Некорректный глобальный `pip install` | Окружение для каждого проекта |
+| Конфликты версий Python | Проект A требует 3.9, проект B — 3.11 | Управление версиями через conda или pyenv |
 | Трудности с онбордингом | Нет воспроизводимой настройки | `requirements.txt` / `environment.yml` |
+| Грязный CI | Нет фиксации зависимостей | Пинить версии в CI-пайплайне |
 
-#### Создание и активация
+**Золотое правило:** одно окружение на один проект. Без исключений.
+
+---
+
+## 2. Как устроен venv изнутри
+
+`venv` — стандартная библиотека Python (с версии 3.3), не нужно ничего дополнительно устанавливать.
+
+### Что происходит при создании окружения
+
 ```bash
-# Создаём окружение в директории проекта
 python -m venv .venv
-
-# Активация (Linux/macOS)
-source .venv/bin/activate
-
-# Активация (Windows)
-.venv\Scripts\activate
-
-# Проверяем, что находимся внутри окружения
-which python           # должно указывать на .venv/bin/python
-python --version
 ```
 
-#### Установка пакетов и фиксация версий
+Python создаёт директорию `.venv/` с такой структурой:
+
+```
+.venv/
+├── bin/               # (Scripts/ на Windows)
+│   ├── python         # симлинк → системный Python
+│   ├── python3
+│   ├── pip
+│   └── activate       # скрипт активации
+├── lib/
+│   └── python3.11/
+│       └── site-packages/   # сюда устанавливаются пакеты
+└── pyvenv.cfg         # метаданные окружения
+```
+
+Содержимое `pyvenv.cfg`:
+```ini
+home = /usr/bin          # откуда взят Python
+include-system-site-packages = false
+version = 3.11.4
+```
+
+### Что делает `activate`
+
+Скрипт `activate` изменяет три переменные окружения:
+
 ```bash
+VIRTUAL_ENV="/path/to/project/.venv"
+PATH=".venv/bin:$PATH"      # ставит окружение первым в PATH
+PS1="(.venv) $PS1"          # показывает имя в промпте
+```
+
+Это означает, что `python` и `pip` теперь будут искаться сначала в `.venv/bin/`.
+
+### Как проверить, что вы внутри окружения
+
+```bash
+# Должно указывать на .venv, а не системный Python
+which python
+# /home/user/my_project/.venv/bin/python
+
+# Переменная окружения
+echo $VIRTUAL_ENV
+# /home/user/my_project/.venv
+
+# В Python
+python -c "import sys; print(sys.prefix)"
+```
+
+---
+
+## 3. virtualenv и рабочие приёмы с venv
+
+### Создание и управление
+
+```bash
+# Создаём (Python стандартной библиотеки, рекомендуется называть .venv)
+python -m venv .venv
+
+# Активация
+source .venv/bin/activate          # Linux / macOS
+.venv\Scripts\activate             # Windows CMD
+.venv\Scripts\Activate.ps1         # Windows PowerShell
+
+# Деактивация
+deactivate
+
+# Удалить и пересоздать (просто удаляем директорию)
+rm -rf .venv
+python -m venv .venv
+```
+
+> **Совет:** `.venv` — стандартное имя (его понимают VS Code, PyCharm, ruff, mypy). Используйте его везде.
+
+### Установка пакетов и фиксация версий
+
+```bash
+# Установка пакетов
 pip install pandas==2.1.0 numpy==1.26.0 requests
 
 # Зафиксировать точные установленные версии
@@ -39,9 +128,14 @@ pip freeze > requirements.txt
 
 # Установить из requirements на другой машине
 pip install -r requirements.txt
+
+# Обновить один пакет и перезаписать requirements
+pip install --upgrade pandas
+pip freeze > requirements.txt
 ```
 
-#### Стратегии фиксации версий
+### Стратегии фиксации версий
+
 ```
 # requirements.txt — точная фиксация (для production / воспроизводимости)
 pandas==2.1.0
@@ -50,46 +144,146 @@ numpy==1.26.0
 # requirements-dev.txt — диапазон (для библиотек, гибкость)
 pandas>=2.0,<3.0
 numpy>=1.25
+
+# Два файла: dev зависит от prod
+# requirements-dev.txt
+-r requirements.txt     # включает prod зависимости
+pytest>=7.0
+black>=23.0
 ```
 
-**Когда использовать точную фиксацию:** общие репозитории с анализом, опубликованные результаты, CI-пайплайны.  
-**Когда использовать диапазоны:** библиотеки, которые вы публикуете для других.
+**Когда точная фиксация:** общие репозитории с анализом, опубликованные результаты, CI-пайплайны.
+**Когда диапазоны:** библиотеки, которые вы публикуете для других.
 
-#### Деактивация
+### Полезные флаги pip
+
 ```bash
-deactivate
+# Не устанавливать зависимости (опасно, но иногда нужно)
+pip install requests --no-deps
+
+# Показать, что установлено и почему
+pip show pandas
+
+# Проверить на устаревшие пакеты
+pip list --outdated
+
+# Установить из git-репозитория
+pip install git+https://github.com/user/repo.git
+
+# Установить в режиме разработки (изменения сразу видны без переустановки)
+pip install -e .
+```
+
+### virtualenv vs venv
+
+`virtualenv` — сторонний пакет, предшественник `venv`. Устанавливается отдельно (`pip install virtualenv`), но имеет преимущества:
+
+```bash
+pip install virtualenv
+
+# Можно указать конкретный интерпретатор
+virtualenv -p python3.9 .venv
+
+# Быстрее создаёт окружения (кеширует системные пакеты)
+virtualenv --system-site-packages .venv  # наследует системные пакеты
+```
+
+**Рекомендация:** используйте стандартный `venv`, если нет специфических потребностей.
+
+### .env + python-dotenv: секреты не в коде
+
+```bash
+pip install python-dotenv
+```
+
+Файл `.env` (никогда не коммитить!):
+```env
+DATABASE_URL=postgresql://user:password@localhost/mydb
+API_KEY=sk-abc123
+DEBUG=true
+```
+
+Использование в Python:
+```python
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  # загружает .env в переменные окружения
+
+db_url = os.getenv("DATABASE_URL")
+api_key = os.getenv("API_KEY")
+
+# С дефолтным значением
+debug = os.getenv("DEBUG", "false").lower() == "true"
 ```
 
 ---
 
-#### Когда необходима conda
-- Пакеты с нативными расширениями на C/Fortran (например, MKL-ускоренный NumPy, некоторые конфигурации PySpark).
-- Необходимо управлять самой версией Python (не только пакетами).
-- Стеки для data science / научных вычислений под Windows.
+## 4. conda: когда и как
 
-#### Основные команды
+### Когда необходима conda
+
+- Нужно управлять **самой версией Python** (не только пакетами).
+- Пакеты с **нативными расширениями** (MKL-NumPy, GDAL, некоторые конфигурации PySpark, OpenCV).
+- Работа на **Windows** с data-science стеком.
+- Нужны **не-Python зависимости** (ffmpeg, gdal, cuda toolkit).
+
+### Основные команды
+
 ```bash
-# Создать новое окружение
+# Создать новое окружение с конкретной версией Python
 conda create -n course-env python=3.11
 
 # Активировать
 conda activate course-env
 
-# Установить пакеты (предпочтителен канал conda-forge)
+# Деактивировать
+conda deactivate
+
+# Список всех окружений
+conda env list
+
+# Удалить окружение
+conda env remove -n course-env
+```
+
+### Установка пакетов
+
+```bash
+# Устанавливать из conda-forge (лучшее качество сборок)
 conda install -c conda-forge pandas numpy jupyterlab
 
-# Смешанный вариант: conda для скомпилированных зависимостей, pip — для остального
-conda install -c conda-forge numpy
-pip install polars streamlit
+# Смешанный вариант: conda для скомпилированных зависимостей
+conda install -c conda-forge numpy scipy
+pip install polars streamlit       # pip для чисто Python пакетов
 
-# Экспорт
+# Поиск пакета
+conda search pandas
+
+# Обновить все пакеты
+conda update --all
+```
+
+> **Важно:** если в conda-окружении использовать pip, сначала устанавливайте conda-пакеты, потом pip. Обратный порядок может сломать окружение.
+
+### Экспорт и воссоздание
+
+```bash
+# Экспорт (включая системные зависимости — не переносимо между ОС)
 conda env export > environment.yml
+
+# Кроссплатформенный экспорт (только явно установленные пакеты)
+conda env export --from-history > environment.yml
 
 # Воссоздать на другой машине
 conda env create -f environment.yml
+
+# Обновить существующее окружение из файла
+conda env update -f environment.yml --prune
 ```
 
-#### Структура environment.yml
+### Структура environment.yml
+
 ```yaml
 name: course-env
 channels:
@@ -99,46 +293,199 @@ dependencies:
   - python=3.11
   - numpy=1.26.0
   - pandas=2.1.0
-  - pip:
+  - jupyterlab=4.0.0
+  - pip:           # pip-зависимости в конце
     - polars==0.20.0
     - streamlit==1.30.0
 ```
 
-#### conda vs pip — правило выбора
+### conda vs pip — правило выбора
+
 ```
-Нужно управлять самой версией Python?             → conda
+Нужно управлять самой версией Python?              → conda
 Пакет содержит тяжёлый нативный код (C/Fortran)?  → conda (установить через conda-forge)
 Чистый Python-пакет?                              → pip подойдёт
 Смешанный стек (научный + веб)?                   → conda для базы + pip для остального
+Нет conda, нужна другая версия Python?            → pyenv + venv
 ```
 
 ---
 
-### Структура проекта
+## 5. Jupyter: настройка и практические советы
+
+### Установка и запуск
+
+```bash
+# Внутри вашего venv или conda-окружения
+pip install jupyterlab          # современный интерфейс (рекомендуется)
+# или
+pip install notebook            # классический интерфейс
+
+# Запуск
+jupyter lab                     # откроет браузер
+jupyter lab --no-browser        # без открытия браузера
+jupyter lab --port 8889         # другой порт, если 8888 занят
+```
+
+### Ключевая проблема: Jupyter и ваши окружения
+
+Jupyter запускает ноутбуки в **ядрах (kernels)**. По умолчанию он использует тот Python, в котором установлен. Если Jupyter и ваш проект в разных окружениях — пакеты не найдутся.
+
+**Правильный подход:** установите `ipykernel` в каждое окружение и зарегистрируйте его.
+
+```bash
+# Активируйте ваше рабочее окружение
+conda activate course-env        # или source .venv/bin/activate
+
+# Установите ipykernel
+pip install ipykernel
+
+# Зарегистрируйте окружение как ядро Jupyter
+python -m ipykernel install --user --name course-env --display-name "Python (course-env)"
+
+# Теперь в Jupyter можно выбрать это ядро из меню Kernel
+```
+
+Список зарегистрированных ядер:
+```bash
+jupyter kernelspec list
+```
+
+Удалить ядро:
+```bash
+jupyter kernelspec remove course-env
+```
+
+### Настройка Jupyter
+
+Создать конфигурационный файл:
+```bash
+jupyter lab --generate-config
+# Создаст ~/.jupyter/jupyter_lab_config.py
+```
+
+Полезные настройки в `jupyter_lab_config.py`:
+```python
+# Открывать в конкретной директории
+c.ServerApp.root_dir = '/home/user/projects'
+
+# Не открывать браузер автоматически
+c.ServerApp.open_browser = False
+
+# Токен авторизации (для удалённого сервера)
+c.ServerApp.token = 'my-secret-token'
+```
+
+### Расширения и плагины
+
+```bash
+# Оглавление
+pip install jupyterlab-toc
+
+# Форматирование кода в ноутбуках
+pip install jupyterlab-code-formatter black isort
+
+# Git-интеграция
+pip install jupyterlab-git
+
+# Переменные среды (удобный просмотр)
+pip install lckr-jupyterlab-variableinspector
+```
+
+### Советы по работе в Jupyter
+
+**Горячие клавиши (выучить обязательно):**
+
+| Действие | Клавиши |
+|---|---|
+| Запустить ячейку + перейти к следующей | `Shift + Enter` |
+| Запустить ячейку, остаться | `Ctrl + Enter` |
+| Добавить ячейку ниже | `B` (в командном режиме) |
+| Добавить ячейку выше | `A` |
+| Удалить ячейку | `DD` |
+| Переключить в Markdown | `M` |
+| Переключить в код | `Y` |
+| Командная палитра | `Ctrl + Shift + C` |
+| Перезапустить ядро | `00` |
+
+> Нажмите `Esc` для перехода в командный режим, `Enter` — обратно в режим редактирования.
+
+**Магические команды (`%` и `%%`):**
+
+```python
+# Измерить время выполнения ячейки
+%%time
+df = pd.read_csv("big_file.csv")
+
+# Измерить время конкретной строки
+%timeit df["col"].sum()
+
+# Показать все переменные
+%whos
+
+# Запустить bash-команду
+%bash ls -la
+!pip list   # альтернатива
+
+# Автоматически перезагружать модули (очень полезно при разработке)
+%load_ext autoreload
+%autoreload 2
+
+# Встроить matplotlib-графики
+%matplotlib inline
+
+# Интерактивные графики
+%matplotlib widget
+```
+
+**Рекомендации по использованию ноутбуков:**
+
+- Ноутбуки — для **исследований и презентаций**, не для production-кода.
+- Держите ячейки маленькими и с одной идеей.
+- Регулярно делайте **Restart & Run All** — убедиться, что ноутбук воспроизводим.
+- Выносите переиспользуемые функции в `.py` модули, импортируйте их.
+- Избегайте скрытого состояния: переменные, изменённые в произвольном порядке ячеек, ломают воспроизводимость.
+- Называйте ноутбуки с порядковыми номерами: `01_eda.ipynb`, `02_modeling.ipynb`.
+
+---
+
+## 6. Организация проекта
+
+### Рекомендуемая структура
 
 ```
 my_project/
-├── .venv/                  # или conda-окружение (добавить в .gitignore)
+├── .venv/                  # или conda-окружение — добавить в .gitignore
 ├── data/
-│   ├── raw/                # сырые файлы — никогда не изменять
-│   └── processed/
-├── notebooks/              # только для исследований
+│   ├── raw/                # исходные файлы — никогда не изменять
+│   ├── processed/          # результаты обработки
+│   └── external/           # данные из внешних источников
+├── notebooks/
+│   ├── 01_eda.ipynb        # исследования — нумеровать!
+│   └── 02_modeling.ipynb
 ├── src/
 │   └── my_project/         # импортируемый пакет
 │       ├── __init__.py
-│       └── utils.py
+│       ├── data.py         # функции загрузки данных
+│       ├── features.py     # feature engineering
+│       ├── models.py       # модели
+│       └── utils.py        # утилиты
 ├── tests/
+│   └── test_utils.py
 ├── .env                    # секреты — НИКОГДА не коммитить
 ├── .gitignore
 ├── requirements.txt
+├── requirements-dev.txt    # pytest, black, mypy и т.д.
 └── README.md
 ```
 
-#### Необходимые записи в .gitignore
+### Необходимые записи в .gitignore
+
 ```gitignore
 # Окружения
 .venv/
 env/
+venv/
 __pycache__/
 *.pyc
 *.pyo
@@ -148,50 +495,99 @@ __pycache__/
 .env
 *.key
 *.pem
+.env.local
 
 # Данные (часто слишком велики для git)
 data/raw/
 data/processed/
 *.parquet
 *.csv
+*.xlsx
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
 ```
 
-#### .env + python-dotenv
+### README минимум
+
+```markdown
+## Настройка
+
 ```bash
-pip install python-dotenv
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+cp .env.example .env     # заполните свои значения
+```
+
+## Структура
+
+Описание папок и что где лежит.
+
+## Запуск
 ```
 
 ---
 
-### Практика: параллельная настройка
+## Практика: параллельная настройка (10 мин)
 
-**Задание:** Настроить учебный проект с одинаковыми зависимостями двумя способами.
+Настроить учебный проект двумя способами с одинаковыми зависимостями.
 
 ```bash
 # Часть A — venv
 python -m venv .venv-pip
 source .venv-pip/bin/activate
-pip install pandas==2.1.0 numpy==1.26.0 polars==0.20.0
+pip install pandas==2.1.0 numpy==1.26.0 polars==0.20.0 jupyterlab ipykernel
 pip freeze > requirements.txt
+python -m ipykernel install --user --name venv-pip --display-name "Python (venv-pip)"
 deactivate
 
 # Часть B — conda
 conda create -n course-conda python=3.11 -y
 conda activate course-conda
-conda install -c conda-forge numpy=1.26.0 pandas=2.1.0 -y
+conda install -c conda-forge numpy=1.26.0 pandas=2.1.0 jupyterlab ipykernel -y
 pip install polars==0.20.0
 conda env export > environment.yml
+python -m ipykernel install --user --name course-conda --display-name "Python (course-conda)"
 conda deactivate
 ```
 
-**DEBUGGER**
+**Вопросы для обсуждения:**
 
-**Вопросы для размышления:**
-1. Какой подход показался быстрее? Почему?
-2. Как вы поделитесь этим окружением с коллегой, у которого есть только pip?
+1. Какой подход показался быстрее? Почему conda медленнее при установке?
+2. Как поделиться окружением с коллегой, у которого нет conda?
 3. Что произойдёт, если выполнить `pip install` внутри conda-окружения?
+4. Почему `pip freeze` включает транзитивные зависимости, а `conda env export --from-history` — нет? Когда каждый подход лучше?
+5. Откройте Jupyter Lab и убедитесь, что оба ядра появились в меню Kernel. Проверьте: `import pandas; print(pandas.__version__)`.
 
 ---
+
+## Шпаргалка
+
+```bash
+# venv
+python -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+pip freeze > requirements.txt
+deactivate
+
+# conda
+conda create -n myenv python=3.11 && conda activate myenv
+conda install -c conda-forge pandas numpy
+conda env export > environment.yml
+conda env create -f environment.yml
+
+# Jupyter — зарегистрировать окружение как ядро
+pip install ipykernel
+python -m ipykernel install --user --name myenv --display-name "Python (myenv)"
+jupyter kernelspec list
+```
 
 ---
 
@@ -200,4 +596,6 @@ conda deactivate
 - [Документация venv](https://docs.python.org/3/library/venv.html)
 - [Шпаргалка conda](https://docs.conda.io/projects/conda/en/stable/user-guide/cheatsheet.html)
 - [python-dotenv](https://pypi.org/project/python-dotenv/)
+- [Документация Jupyter](https://jupyterlab.readthedocs.io/)
+- [ipykernel — регистрация ядер](https://ipython.readthedocs.io/en/stable/install/kernel_install.html)
 - Шаблон репозитория курса: `github.com/course/template` (предоставляет преподаватель)
