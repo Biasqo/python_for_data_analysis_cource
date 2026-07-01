@@ -1,4 +1,4 @@
-# Урок 2 — Виртуальные окружения, Jupyter и организация проекта
+# Глава 2 — Виртуальные окружения, Jupyter и организация проекта
 
 ## Программа урока
 
@@ -555,4 +555,3 @@ jupyter kernelspec list
 - [python-dotenv](https://pypi.org/project/python-dotenv/)
 - [Документация Jupyter](https://jupyterlab.readthedocs.io/)
 - [ipykernel — регистрация ядер](https://ipython.readthedocs.io/en/stable/install/kernel_install.html)
-- Шаблон репозитория курса: `github.com/course/template` (предоставляет преподаватель)
