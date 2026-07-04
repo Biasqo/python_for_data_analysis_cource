@@ -22,3 +22,21 @@
 | Работаете с разными языками | Пишете в основном на Python |
 | Любите кастомизировать под себя | Хотите, чтобы всё работало из коробки |
 | Мало оперативной памяти (<8 ГБ) | Есть 16+ ГБ ОЗУ |
+
+### PEP8 отступы
+
+**VS Code:**
+В настройках (settings.json):
+
+```json
+"editor.tabSize": 4,
+"editor.insertSpaces": true,
+"editor.formatOnSave": true
+```
+
+**PyCharm:**
+
+Настройки → Editor → Code Style → Python → Tabs and Indents → установите Tab size: 4, Indent: 4, и отметьте «Use tab character» как выключено (используйте пробелы).
+
+**Jupyter Notebook:**
+В меню Settings → Editor → установите Indent size: 4 и отметьте «Use spaces for indent».

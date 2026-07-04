@@ -72,7 +72,7 @@ Python - интерпретируемый высокоуровневый язы�
 | Streamlit | Tableau / Power BI | Code-first dashboards | Enterprise governance |
 
 
-**IDE** — среда для написания и отладки кода.
+**IDE** - среда для написания и отладки кода.
 
 #### Основные функции
 - Подсветка кода
@@ -82,5 +82,5 @@ Python - интерпретируемый высокоуровневый язы�
 
 ## Материалы
 
-- Python docs: [pathlib](https://docs.python.org/3/library/pathlib.html), [csv](https://docs.python.org/3/library/csv.html), [json](https://docs.python.org/3/library/json.html)
-- Documentation https://docs.python.org/3/
+- Python docs: [python dev guide](https://devguide.python.org/#additional-resources), [python docs](https://docs.python.org/3/)
+- Flake8 docs: [flake](https://flake8.pycqa.org/en/latest/user/)
