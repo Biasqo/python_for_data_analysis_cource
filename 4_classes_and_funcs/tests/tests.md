@@ -1,99 +1,125 @@
-**Задание:** Реализовать класс `TransactionProcessor` с:
-- `@dataclass` для `Transaction`.
-- Методом `process_batch(transactions)`, использующим выбранную вами парадигму.
-- Декоратором `@retry(3)` на функции загрузки данных.
-- Собственными исключениями для отсутствующих полей и некорректных сумм.
+# Глава 4 - тест
 
----
+## Задание 1. Предскажите вывод
 
-## Проверка понимания
-
-1. Что делает `@functools.wraps(func)` внутри декоратора?
-   > Копирует `__name__`, `__doc__` и другие атрибуты оригинальной функции в обёртку, чтобы при отладке и интроспекции был виден оригинальный объект, а не `wrapper`.
-
-2. Каков вывод этого кода?
-   ```python
-   a, *b, c = [1, 2, 3, 4, 5]
-   print(b)
-   ```
-   > `[2, 3, 4]`
-
-3. Почему в `@dataclass` нужно использовать `field(default_factory=list)` вместо `tags: list = []`?
-   > Изменяемое значение по умолчанию (`[]`) было бы общим для всех экземпляров (тот же баг, что и с изменяемыми аргументами функций по умолчанию). `default_factory` создаёт новый список для каждого экземпляра.
-
-4. В чём разница между `else` и `finally` в блоке `try`?
-   > `else` выполняется только если исключения не было; `finally` выполняется всегда — даже после исключения или `return`.
-
-5. Какую парадигму (процедурную / функциональную / ООП) вы бы выбрали для одноразового исследовательского скрипта и почему?
-   > Процедурную — проще всего написать быстро, удобно отлаживать, нет накладных расходов на классы или функциональную композицию.
-**Задание:** Реализовать класс `TransactionProcessor` с:
-- `@dataclass` для `Transaction`.
-- Методом `process_batch(transactions)`, использующим выбранную вами парадигму.
-- Декоратором `@retry(3)` на функции загрузки данных.
-- Собственными исключениями для отсутствующих полей и некорректных сумм.
-
----
-
-## Проверка понимания
-
-1. Что делает `@functools.wraps(func)` внутри декоратора?
-   > Копирует `__name__`, `__doc__` и другие атрибуты оригинальной функции в обёртку, чтобы при отладке и интроспекции был виден оригинальный объект, а не `wrapper`.
-
-2. Каков вывод этого кода?
-   ```python
-   a, *b, c = [1, 2, 3, 4, 5]
-   print(b)
-   ```
-   > `[2, 3, 4]`
-
-3. Почему в `@dataclass` нужно использовать `field(default_factory=list)` вместо `tags: list = []`?
-   > Изменяемое значение по умолчанию (`[]`) было бы общим для всех экземпляров (тот же баг, что и с изменяемыми аргументами функций по умолчанию). `default_factory` создаёт новый список для каждого экземпляра.
-
-4. В чём разница между `else` и `finally` в блоке `try`?
-   > `else` выполняется только если исключения не было; `finally` выполняется всегда — даже после исключения или `return`.
-
-5. Какую парадигму (процедурную / функциональную / ООП) вы бы выбрали для одноразового исследовательского скрипта и почему?
-   > Процедурную — проще всего написать быстро, удобно отлаживать, нет накладных расходов на классы или функциональную композицию.
-
-#### `@dataclass` — структурированные данные без шаблонного кода
 ```python
-from dataclasses import dataclass, field
-from typing import Optional
+values = [1, 2, 3, 4, 5]
+result = [y for x in values if (y := x ** 2) > 10]
+print(result)
+```
+
+## Задание 2. Найдите ошибку
+
+Что произойдёт при выполнении этого кода? Объясните ошибку одним предложением.
+
+```python
+def greet(name: str, age: int = 18, city) -> str:
+    return f"{name}, {age}, {city}"
+```
+
+## Задание 3. `Optional` или `Union`?
+
+Чем `Optional[str]` отличается от `Union[str, int]`? Приведите пример ситуации, когда уместен именно `Optional`.
+
+## Задание 4. Предскажите вывод
+
+```python
+matrix = [[1, 2, 3], [4, 5, 6]]
+print(list(zip(matrix)))
+print(list(zip(*matrix)))
+```
+
+## Задание 5. Заполните пропуски в таблице
+
+| Конструкция | Что делает | Пример |
+|---|---|---|
+| `first, *rest = [1, 2, 3, 4]` | ??? | `first = ???`, `rest = ???` |
+| `*init, last = [1, 2, 3, 4]` | ??? | `init = ???`, `last = ???` |
+| `{**d1, **d2}` | ??? | ??? |
+| `func(*args)` | ??? | ??? |
+
+## Задание 6. Порядок выполнения декораторов - быстрый ответ
+
+```python
+def retry(times=3):
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            ...
+        return wrapper
+    return decorator
+
+@retry(times=5)
+def fetch(): ...
+```
+
+Чему эквивалентна строка `@retry(times=5)`? Запишите в одну строку без декоратора.
+
+## Задание 7. `dataclass` - быстрый ответ
+
+Что выведет следующий код?
+
+```python
+from dataclasses import dataclass
 
 @dataclass
-class Transaction:
-    id: int
-    category: str
-    amount: float
-    currency: str = "USD"
-    tags: list[str] = field(default_factory=list)   # безопасное изменяемое значение по умолчанию
-    note: Optional[str] = None
+class Point:
+    x: int
+    y: int
 
-    @property
-    def amount_eur(self) -> float:
-        rates = {"USD": 0.92, "GBP": 1.15}
-        return self.amount * rates.get(self.currency, 1.0)
+p1 = Point(1, 2)
+p2 = Point(1, 2)
+print(p1 == p2)
+print(p1 is p2)
+```
 
-t = Transaction(id=1, category="electronics", amount=500.0)
-print(t)                 # Transaction(id=1, category='electronics', ...)
-print(t.amount_eur)      # 460.0
-print(t == Transaction(id=1, category="electronics", amount=500.0))  # True (авто __eq__)
+## Задание 8. Наследование vs композиция
 
-@dataclass
-class Transaction:
-    id: int
-    category: str
-    amount: float
-    currency: str = "USD"
-    tags: list[str] = field(default_factory=list)   # безопасное изменяемое значение по умолчанию
-    note: Optional[str] = None
+Перепишите этот код так, чтобы `ReportBuilder` использовал **композицию** вместо наследования (то есть получал агрегатор через конструктор, а не наследовался от него):
 
-    @property
-    def amount_eur(self) -> float:
-        rates = {"USD": 0.92, "GBP": 1.15}
-        return self.amount * rates.get(self.currency, 1.0)
+```python
+class BaseAggregator:
+    def __init__(self):
+        self._totals = {}
 
-t = Transaction(id=1, category="electronics", amount=500.0)
-print(t)                 # Transaction(id=1, category='electronics', ...)
-print(t.amount_eur)      # 460.0
-print(t == Transaction(id=1, category="electronics", amount=500.0))  # True (авто __eq__)
+    def add(self, category, amount):
+        self._totals[category] = self._totals.get(category, 0) + amount
+
+class ReportBuilder(BaseAggregator):
+    def build(self):
+        return "\n".join(f"{k}: {v}" for k, v in self._totals.items())
+```
+
+## Задание 9. `try/except/else/finally` - предскажите вывод
+
+```python
+def divide(a, b):
+    try:
+        result = a / b
+    except ZeroDivisionError:
+        print("Деление на ноль")
+        return None
+    else:
+        print("Успех")
+    finally:
+        print("Завершено")
+    return result
+
+divide(10, 0)
+```
+
+## Задание 10. Контекстный менеджер - базовый случай
+
+В следующем контекстном менеджере пропущена очистка ресурса. Допишите его так, чтобы сообщение о завершении печаталось **всегда**, даже если внутри блока `with` возникло исключение:
+
+```python
+from contextlib import contextmanager
+
+@contextmanager
+def timer():
+    import time
+    start = time.perf_counter()
+    yield
+    # допишите очистку здесь
+```
+
+Что произойдёт, если оставить код без изменений и внутри блока `with` возникнет исключение?
