@@ -73,74 +73,233 @@ NumPy - это фундаментальная библиотека для нау
 - Поддерживаются большие объёмы данных (но не безгранично).
 - Многие операции возвращают копию, а не изменяют исходные данные.
 
-### 15–25 | Ввод/вывод
+### IO
 
+*Чтение*
+---
 ```python
-# CSV - с явными параметрами (хорошая практика)
-df = pd.read_csv(
-    "transactions.csv", sep=",", encoding="utf-8",
-    parse_dates=["дата"], dtype={"id": int, "сумма": float},
-    na_values=["N/A", "-", ""],
-)
-# Всегда проверяйте d`pandas` - главная библиотека Python для табличных данных, построена поверх NumPy. Две ключевые структуры: **Series** (одномерная) и **DataFrame** (двумерная таблица).
+pd.read_csv(путь, sep=',', header='infer', names=None,
+            index_col=None, usecols=None, dtype=None, parse_dates=False,
+            na_values=None, chunksize=None, encoding=None,
+            skiprows=None, nrows=None, compression='infer')
 
-```python
-import pandas as pd
-import numpy as np
+pd.read_excel(путь, sheet_name=0, header=0, names=None,
+              index_col=None, usecols=None, dtype=None, na_values=None)
 
-# Series с пользовательским индексом
-gdp = pd.Series([4.07, 2.78, 2.10, 1.77], index=["DE", "FR", "IT", "ES"], name="ВВП")
-print(gdp["DE"])                 # 4.07 - доступ по метке
-inflation = pd.Series({"DE": 2.1, "FR": 2.5, "IT": 3.0, "ES": 3.5})
-real_gdp = gdp - (gdp * inflation / 100)   # арифметика - выравнивание по индексу
+pd.read_json(путь, orient='index', typ='frame', lines=False,
+             encoding=None, compression='infer')
 
-# DataFrame из словаря списков
-df = pd.DataFrame({
-    "страна":    ["Германия", "Франция", "Италия", "Испания"],
-    "ввп":       [4.07, 2.78, 2.10, 1.77],
-    "инфляция":  [2.1, 2.5, 3.0, 3.5],
-    "население": [83.2, 67.8, 59.6, 47.4],
-})
+pd.read_parquet(путь, columns=None, engine='auto',
+                filters=None, storage_options=None)
 
-print(df.shape); print(df.dtypes); print(df.info()); print(df.describe())
+pd.read_sql(sql, соединение, index_col=None, parse_dates=None,
+            columns=None, chunksize=None)
 
-# Базовые операции
-df["ввп_на_душу"] = df["ввп"] * 1e12 / (df["население"] * 1e6)   # новый столбец
-df = df.drop(columns=["ввп_на_душу"])
-df = df.rename(columns={"ввп": "gdp_trn"})
-df_sorted = df.sort_values("gdp_trn", ascending=False)
-```f.dtypes после чтения - автоопределение типов иногда ошибается!
+pd.read_clipboard(sep='\\s+', header='infer', dtype=None)
 
-# Чтение по частям - для файлов, не умещающихся в RAM
-results = []
-for chunk in pd.read_csv("big_file.csv", chunksize=100_000):
-    results.append(chunk[chunk["сумма"] > 500])
-df_big = pd.concat(results, ignore_index=True)
+pd.read_feather(путь, columns=None, use_threads=True)
 
-# Parquet - предпочтительный формат для больших данных: быстро, компактно, сохраняет типы
-df = pd.read_parquet("data.parquet", columns=["дата", "сумма", "категория"])
-df.to_parquet("output.parquet", index=False)
+pd.read_hdf(путь, key=None, mode='r', columns=None)
+
+pd.read_pickle(путь, compression='infer')
+
+pd.read_html(источник, match='.+', flavor=None, header=None, index_col=None,
+             encoding=None, displayed_only=True)
+
+pd.read_xml(путь, xpath='.//*', namespaces=None, encoding='utf-8')
 ```
 
-### 25–35 | Индексация, фильтрация, `.copy()`
-
+*Запись*
+---
 ```python
-# loc - по меткам (включает правую границу), iloc - по позициям (не включает)
-df.loc["DE", "ввп"]
-df.iloc[0, 1]
+df.to_csv(путь, sep=',', na_rep='', float_format=None,
+          columns=None, header=True, index=True, index_label=None,
+          mode='w', encoding='utf-8', compression='infer',
+          quoting=None, quotechar='"', chunksize=None,
+          date_format=None, decimal='.')
 
-# Булевы маски
-df_выборка = df[(df["сумма"] > 100) & (df["категория"] == "еда")]
-df_нужные  = df[df["категория"].isin(["еда", "транспорт"])]
+df.to_excel(путь, sheet_name='Лист1', na_rep='', float_format=None,
+            columns=None, header=True, index=True, index_label=None,
+            startrow=0, startcol=0, engine=None, merge_cells=True)
 
-# .query() - читаемая альтернатива
-порог = 500
-df_дорогие = df.query("сумма > @порог")
+df.to_json(путь, orient='index', date_format='epoch',
+           double_precision=10, force_ascii=True, date_unit='ms',
+           default_handler=None, lines=False, compression='infer',
+           indent=None)
 
-# ⚠️ SettingWithCopyWarning: срез может быть view или copy - pandas не гарантирует
-df_еда = df[df["категория"] == "еда"].copy()   # явная копия - безопасно
-df_еда["наценка"] = df_еда["сумма"] * 0.1
+df.to_parquet(путь, engine='auto', compression='snappy',
+              index=True, partition_cols=None, storage_options=None)
+
+df.to_sql(имя_таблицы, соединение, schema=None, if_exists='fail',
+          index=True, index_label=None, chunksize=None, dtype=None,
+          method=None)
+
+df.to_pickle(путь, compression='infer', protocol=4)
+
+df.to_feather(путь, compression='lz4', compression_level=None)
+
+df.to_hdf(путь, key, mode='a', format=None, append=False,
+          data_columns=None, index=None)
+
+df.to_markdown(путь, mode='wt', index=True, tablefmt='pipe')
+
+df.to_latex(путь, header=True, index=True, longtable=False,
+            escape=True, bold_rows=False, column_format=None)
+
+df.to_stata(путь, convert_dates=None, write_index=True,
+            encoding='utf-8', version=117)
 ```
+
+*Вспомогательные*
+```python
+pd.options.display.max_rows = 100          # настройки вывода
+pd.options.display.max_columns = None
+pd.set_option('display.float_format', '{:.2f}'.format)
+
+df.info(verbose=True, memory_usage=True)   # сводка по колонкам
+df.dtypes                                   # типы данных
+df.memory_usage(deep=True)                  # память на колонку
+
+pd.concat([df1, df2], ignore_index=True)   # объединение частей
+```
+
+### Индексация, фильтрация, `.copy()`
+
+Доступ к данным
+---
+# loc - по меткам индекса (ВКЛЮЧАЕТ правую границу)
+df.loc[строка, столбец]
+df.loc["DE", "ввп"]                           # одна ячейка
+df.loc["DE":"FR", "ввп":"население"]          # срез строк и столбцов (включая границы)
+df.loc[:, ["ввп", "население"]]               # все строки, выбранные столбцы
+df.loc[["DE", "FR", "IT"]]                    # выбранные строки, все столбцы
+
+# iloc - по позициям (НЕ ВКЛЮЧАЕТ правую границу, как в Python)
+df.iloc[строка, столбец]
+df.iloc[0, 1]                                 # первая строка, второй столбец
+df.iloc[0:3, 0:2]                             # строки 0,1,2; столбцы 0,1 (НЕ включая 3 и 2)
+df.iloc[:, [0, 2]]                            # все строки, столбцы на позициях 0 и 2
+df.iloc[-5:]                                  # последние 5 строк
+
+# at / iat - быстрый доступ к ОДНОЙ ячейке
+df.at["DE", "ввп"]                            # по меткам (быстрее loc)
+df.iat[0, 1]                                  # по позициям (быстрее iloc)
+
+# [] - доступ по имени столбца
+df["ввп"]                                     # Series (один столбец)
+df[["ввп", "население"]]                      # DataFrame (несколько столбцов)
+df[0:5]                                       # первые 5 строк (срез по строкам)
+
+*Булевы маски*
+---
+# Одно условие
+df[df["сумма"] > 100]                         # все строки где сумма > 100
+df[df["категория"] == "еда"]                  # точное совпадение
+
+# Несколько условий: & (И), | (ИЛИ), ~ (НЕ)
+df[(df["сумма"] > 100) & (df["категория"] == "еда")]
+df[(df["сумма"] > 100) | (df["категория"] == "транспорт")]
+df[~df["категория"].isin(["еда", "транспорт"])]
+
+# isin() - проверка вхождения в список
+df[df["категория"].isin(["еда", "транспорт", "развлечения"])]
+
+# between() - проверка диапазона
+df[df["сумма"].between(100, 500)]             # 100 <= сумма <= 500
+
+# str методы для текстовых столбцов
+df[df["название"].str.contains("пицца", case=False)]  # содержит подстроку
+df[df["название"].str.startswith("A")]                # начинается с
+df[df["название"].str.endswith("ов")]                 # заканчивается на
+df[df["название"].str.len() > 10]                     # длина строки
+
+# isna() / notna() - пропуски
+df[df["сумма"].isna()]                        # строки с пропусками
+df[df["сумма"].notna()]                       # строки без пропусков
+
+# duplicated() / drop_duplicates()
+df[df.duplicated(subset=["id"], keep=False)]  # все дубликаты по id
+df.drop_duplicates(subset=["id"], keep="first")  # удалить дубликаты
+
+# nlargest() / nsmallest() - топ N
+df.nlargest(5, "сумма")                       # 5 самых больших сумм
+df.nsmallest(3, "сумма")                      # 3 самых маленьких сумм
+
+*Запросы - альтернатива*
+---
+# Простые условия
+df.query("сумма > 100")
+df.query("категория == 'еда'")
+df.query("сумма > 100 and категория == 'еда'")
+df.query("сумма > 100 or категория == 'транспорт'")
+
+# Переменные через @
+limit = 500
+df.query("сумма > @limit")
+categories = ["еда", "транспорт"]
+df.query("category in @categories")
+
+# Строковые методы в query
+df.query("name.str.contains('пицца')")
+df.query("name.str.startswith('A')")
+
+# Ссылка на внешние переменные
+min_sum = 100
+max_sum = 500
+df.query("@min_sum <= sum <= @max_sum")
+
+Copy()
+---
+# ОПАСНО: срез может быть view или copy - pandas не гарантирует
+df_еда = df[df["category"] == "еда"]   # может быть view!
+df_еда["add"] = df_еда["sum"] * 0.1    # SettingWithCopyWarning!
+
+# ✅ БЕЗОПАСНО: явная копия
+df_еда = df[df["категория"] == "еда"].copy()
+df_еда["наценка"] = df_еда["сумма"] * 0.1     # НЕТ Warning!
+
+# Другие случаи где нужна копия
+df_copy = df.copy()                           # полная копия всего DataFrame
+df_copy = df[["ввп", "население"]].copy()     # копия подмножества столбцов
+df_copy = df.head(10).copy()                  # копия первых 10 строк
+
+# loc с присваиванием - БЕЗОПАСНО (работает с оригиналом)
+df.loc[df["категория"] == "еда", "наценка"] = df["сумма"] * 0.1
+
+# is_copy - проверка является ли DataFrame копией
+df._is_copy                                    # None или предупреждение
+
+ВЫБОР СТРОК И СТОЛБЦОВ
+---
+# sample() - случайная выборка
+df.sample(n=10)                               # 10 случайных строк
+df.sample(frac=0.1)                           # 10% случайных строк
+df.sample(frac=1)                             # перемешать все строки
+
+# head() / tail() - первые/последние строки
+df.head(10)                                   # первые 10 строк
+df.tail(5)                                    # последние 5 строк
+
+# take() - выбор по позициям
+df.take([0, 2, 5])                            # строки на позициях 0,2,5
+
+# filter() - выбор столбцов по имени
+df.filter(like="сумма")                       # столбцы содержащие "сумма"
+df.filter(regex=r"^ввп")                      # столбцы начинающиеся с "ввп"
+
+# select_dtypes() - выбор по типу данных
+df.select_dtypes(include=["int64", "float64"]) # числовые столбцы
+df.select_dtypes(exclude=["object"])           # все кроме текстовых
+
+ПОЛЕЗНЫЕ ПРОВЕРКИ
+─────────────────────────────────────────────────────────────────
+df.shape                                      # (строки, столбцы)
+df.columns                                    # список столбцов
+df.index                                      # индекс
+df["столбец"].unique()                        # уникальные значения
+df["столбец"].nunique()                       # количество уникальных
+df["столбец"].value_counts()                  # частотность значений
+df.isnull().sum()                             # количество пропусков по столбцам
 
 ### 35–45 | Столбцы: `.apply()`, `.str`, типы
 
