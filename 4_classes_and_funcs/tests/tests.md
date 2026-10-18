@@ -1,125 +1,156 @@
-# Глава 4 - тест
-
-## Задание 1. Предскажите вывод
-
-```python
-values = [1, 2, 3, 4, 5]
-result = [y for x in values if (y := x ** 2) > 10]
-print(result)
+# Проверка блоков 3-4
+```text
+Задания оцениваются в 2 балла
+Решение нужно сдать только файлом (или несколькими файлами) `ipynb`, `.py`
 ```
 
-## Задание 2. Найдите ошибку
+## Задание 1. `*args` и `**kwargs`
 
-Что произойдёт при выполнении этого кода? Объясните ошибку одним предложением.
+Напишите функцию `merge_dicts(*dicts, **overrides)`, которая объединяет словари **слева направо**. При совпадении ключей значение подставляется из словаря **справа**, а именованные аргументы `overrides` применяются последними.
 
+* Исходные словари не изменяются.
+* Если ничего не передано, возвращается пустой `dict`.
+
+**Примеры:**
 ```python
-def greet(name: str, age: int = 18, city) -> str:
-    return f"{name}, {age}, {city}"
+merge_dicts({"a": 1}, {"b": 2}, a=10)          # {'a': 10, 'b': 2}
+merge_dicts({"a": 1, "b": 1}, {"b": 2})        # {'a': 1, 'b': 2}
+merge_dicts()                                  # {}
 ```
 
-## Задание 3. `Optional` или `Union`?
+Используйте только стандартные библиотеки.
 
-Чем `Optional[str]` отличается от `Union[str, int]`? Приведите пример ситуации, когда уместен именно `Optional`.
+## Задание 2. Декоратор с повтором
 
-## Задание 4. Предскажите вывод
-
+Дана функция:
 ```python
-matrix = [[1, 2, 3], [4, 5, 6]]
-print(list(zip(matrix)))
-print(list(zip(*matrix)))
+import random
+
+def fetch():
+    outcome = random.choice(["success", "error1", "error2", "error3"])
+
+    if outcome == "success":
+        return {"status": "ok", "data": "some payload"}
+
+    if outcome == "error1":
+        raise ValueError("Error 1: invalid input")
+
+    if outcome == "error2":
+        raise RuntimeError("Error 2: server failure")
+
+    raise ConnectionError("Error 3: network unreachable")
 ```
 
-## Задание 5. Заполните пропуски в таблице
+Напишите декоратор `retry(times, exceptions)`. Он повторяет вызов функции при исключениях из `exceptions`, но не более `times` раз. Если все попытки неудачны, пробрасывается последнее исключение.
 
-| Конструкция | Что делает | Пример |
-|---|---|---|
-| `first, *rest = [1, 2, 3, 4]` | ??? | `first = ???`, `rest = ???` |
-| `*init, last = [1, 2, 3, 4]` | ??? | `init = ???`, `last = ???` |
-| `{**d1, **d2}` | ??? | ??? |
-| `func(*args)` | ??? | ??? |
-
-## Задание 6. Порядок выполнения декораторов - быстрый ответ
-
+**Примеры:**
 ```python
-def retry(times=3):
-    def decorator(func):
-        def wrapper(*args, **kwargs):
-            ...
-        return wrapper
-    return decorator
+attempts = 0
 
-@retry(times=5)
-def fetch(): ...
+@retry(times=3, exceptions=(ConnectionError,))
+def fetch():
+    ...  # тело функции то же, что выше
+
+# Возможные результаты выполнения
+fetch()            # {'status': 'ok', 'data': 'some payload'}        - успех (с 1-й, 2-й или 3-й попытки)
+fetch()            # ConnectionError: Error 3: network unreachable   - 3 неудачи подряд
+fetch()            # ValueError: Error 1: invalid input              - выбрасывается сразу 
+fetch()            # RuntimeError: Error 2: server failure           - выбрасывается сразу
+fetch.__name__     # 'fetch'
 ```
 
-Чему эквивалентна строка `@retry(times=5)`? Запишите в одну строку без декоратора.
-
-## Задание 7. `dataclass` - быстрый ответ
-
-Что выведет следующий код?
-
 ```python
-from dataclasses import dataclass
+@retry(times=5, exceptions=(ConnectionError, RuntimeError))
+def fetch():
+    ... # тело функции то же, что выше
 
-@dataclass
-class Point:
-    x: int
-    y: int
-
-p1 = Point(1, 2)
-p2 = Point(1, 2)
-print(p1 == p2)
-print(p1 is p2)
+fetch()            # ValueError пробрасывается сразу, а ConnectionError и RuntimeError повторяются до 5 раз
 ```
 
-## Задание 8. Наследование vs композиция
+Используйте только стандартные библиотеки.
 
-Перепишите этот код так, чтобы `ReportBuilder` использовал **композицию** вместо наследования (то есть получал агрегатор через конструктор, а не наследовался от него):
+## Задание 3. Класс `Money`
 
+Реализуйте класс `Money(amount, currency)`, который поддерживает:
+
+* сложение и вычитание (только для одинаковой валюты, иначе `CurrencyMismatchError` - собственный класс ошибок);
+* операторы сравнения `==`, `<`, `>`;
+* `sum([Money(1, "RUB"), Money(2, "RUB")])`;
+* `repr` вида `Money(1, 'RUB')`;
+
+**Примеры:**
 ```python
-class BaseAggregator:
-    def __init__(self):
-        self._totals = {}
+Money(5, "RUB") + Money(3, "RUB")              # Money(8, 'RUB')
+Money(5, "RUB") - Money(3, "RUB")              # Money(2, 'RUB')
+Money(5, "RUB") + Money(3, "USD")              # CurrencyMismatchError
 
-    def add(self, category, amount):
-        self._totals[category] = self._totals.get(category, 0) + amount
+Money(1, "RUB") == Money(1, "RUB")             # True
+Money(1, "RUB") < Money(2, "RUB")              # True
+Money(1, "RUB") == 1                           # False (без ошибки)
 
-class ReportBuilder(BaseAggregator):
-    def build(self):
-        return "\n".join(f"{k}: {v}" for k, v in self._totals.items())
+sum([Money(1, "RUB"), Money(2, "RUB")])        # Money(3, 'RUB')
+print(Money(5, "RUB"))                         # Money(5, 'RUB')
 ```
 
-## Задание 9. `try/except/else/finally` - предскажите вывод
+Используйте только стандартные библиотеки.
 
-```python
-def divide(a, b):
-    try:
-        result = a / b
-    except ZeroDivisionError:
-        print("Деление на ноль")
-        return None
-    else:
-        print("Успех")
-    finally:
-        print("Завершено")
-    return result
+## Задание 4. Генераторы: чтение больших логов
 
-divide(10, 0)
+Дан лог-файл `app.log` (приложен к заданию). Каждая строка имеет вид:
+
+```text
+2026-06-04 00:50:14,123 - ERROR - payments - Card declined
+2026-06-04 00:51:02,121 - INFO - auth - User logged in
 ```
 
-## Задание 10. Контекстный менеджер - базовый случай
+Реализуйте цепочку функций-генераторов, **не загружая файл в память целиком**:
 
-В следующем контекстном менеджере пропущена очистка ресурса. Допишите его так, чтобы сообщение о завершении печаталось **всегда**, даже если внутри блока `with` возникло исключение:
+* `read_lines(path)` - лениво отдаёт строки файла;
+* `parse_log(lines)` - отдаёт для каждой строки `dict` с ключами `datetime`, `level`, `module`, `message`;
+* `filter_level(records, level)` - оставляет только записи с нужным уровнем.
 
-```python
-from contextlib import contextmanager
-
-@contextmanager
-def timer():
-    import time
-    start = time.perf_counter()
-    yield
-    # допишите очистку здесь
+Соберите из них конвейер, который выводит первые 10 записей уровня `ERROR` из модуля `payments`.
+```text
+# {'datetime': '2026-06-04 00:50:14', 'level': 'ERROR', 'module': 'payments', 'message': 'Card declined'}
+# {'datetime': '2026-06-04 00:51:47', 'level': 'ERROR', 'module': 'payments', 'message': 'Insufficient funds'}
+# {'datetime': '2026-06-04 00:53:21', 'level': 'ERROR', 'module': 'payments', 'message': 'Card expired'}
+# {'datetime': '2026-06-04 00:54:32', 'level': 'ERROR', 'module': 'payments', 'message': 'Card declined'}
+# {'datetime': '2026-06-04 00:56:19', 'level': 'ERROR', 'module': 'payments', 'message': 'Transaction timeout'}
+# {'datetime': '2026-06-04 00:57:34', 'level': 'ERROR', 'module': 'payments', 'message': 'Card declined'}
+# {'datetime': '2026-06-04 00:59:18', 'level': 'ERROR', 'module': 'payments', 'message': 'Insufficient funds'}
+# {'datetime': '2026-06-04 01:00:23', 'level': 'ERROR', 'module': 'payments', 'message': 'Card declined'}
+# {'datetime': '2026-06-04 01:02:19', 'level': 'ERROR', 'module': 'payments', 'message': 'Card expired'}
+# {'datetime': '2026-06-04 01:03:31', 'level': 'ERROR', 'module': 'payments', 'message': 'Card declined'}
 ```
 
-Что произойдёт, если оставить код без изменений и внутри блока `with` возникнет исключение?
+**Примеры:**
+
+`read_lines`:
+```python
+lines = read_lines("app.log")
+next(lines)    # '2026-06-04 00:50:14,123 - ERROR - payments - Card declined'
+next(lines)    # '2026-06-04 00:51:02,121 - INFO - auth - User logged in'
+next(lines)    # '2026-06-04 00:51:47,456 - ERROR - payments - Insufficient funds'
+```
+
+`parse_log`:
+```python
+records = parse_log(read_lines("app.log"))
+next(records)  # {'datetime': '2026-06-04 00:50:14', 'level': 'ERROR', 'module': 'payments', 'message': 'Card declined'}
+next(records)  # {'datetime': '2026-06-04 00:51:02', 'level': 'INFO', 'module': 'auth', 'message': 'User logged in'}
+next(records)  # {'datetime': '2026-06-04 00:51:47', 'level': 'ERROR', 'module': 'payments', 'message': 'Insufficient funds'}
+```
+
+`filter_level`:
+```python
+errors = filter_level(parse_log(read_lines("app.log")), "ERROR")
+next(errors)   # {'datetime': '2026-06-04 00:50:14', 'level': 'ERROR', 'module': 'payments', 'message': 'Card declined'}
+next(errors)   # {'datetime': '2026-06-04 00:51:47', 'level': 'ERROR', 'module': 'payments', 'message': 'Insufficient funds'}
+
+warnings = filter_level(parse_log(read_lines("app.log")), "WARNING")
+next(warnings) # {'datetime': '2026-06-04 00:52:58', 'level': 'WARNING', 'module': 'api', 'message': 'Rate limit approaching'}
+
+list(filter_level(parse_log(read_lines("app.log")), "DEBUG"))   # []
+```
+
+Используйте только стандартные библиотеки.

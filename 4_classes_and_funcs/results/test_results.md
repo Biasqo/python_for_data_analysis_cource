@@ -1,188 +1,322 @@
-# Ответы. Тест / Классная работа — Глава 4
+# Решения: проверка блоков 3-4
+
+Все решения используют только стандартную библиотеку и проверены на примерах из условия.
 
 ---
 
-## Задание 1. Предскажите вывод
+## Задание 1. `*args` и `**kwargs`
+
+### Идея
+
+* `*dicts` собирает все позиционные аргументы в кортеж словарей.
+* `**overrides` собирает именованные аргументы в словарь.
+* Создаём **новый** пустой словарь и по очереди обновляем его методом `update`. Так более поздний словарь перезаписывает значения более раннего, а исходные словари не меняются.
+* `overrides` применяем последними, поэтому они имеют наивысший приоритет.
+* Если ничего не передано, цикл не выполнится, и вернётся пустой `dict`.
+
+### Решение
 
 ```python
-values = [1, 2, 3, 4, 5]
-result = [y for x in values if (y := x ** 2) > 10]
-print(result)
-```
-
-**Ответ:** `[16, 25]`
-
-Пояснение: `x ** 2` вычисляется для каждого `x` и сразу сохраняется в `y` через `:=`. В список попадают только те `y`, которые больше 10, то есть квадраты `4` (16) и `5` (25). Квадраты `1, 2, 3` (1, 4, 9) не проходят условие.
-
----
-
-## Задание 2. Найдите ошибку
-
-```python
-def greet(name: str, age: int = 18, city) -> str:
-    return f"{name}, {age}, {city}"
-```
-
-**Ответ:** `SyntaxError: non-default argument follows default argument`.
-
-Пояснение: в Python все параметры со значением по умолчанию должны идти **после** параметров без значения по умолчанию. Здесь `age=18` (со значением по умолчанию) стоит перед `city` (без значения по умолчанию), что запрещено. Исправление: `def greet(name: str, city: str, age: int = 18)`.
-
----
-
-## Задание 3. `Optional` или `Union`?
-
-**Ответ:** `Optional[str]` — это сокращение для `Union[str, None]`, то есть означает "либо строка, либо `None`". `Union[str, int]` означает "либо строка, либо число", и `None` здесь не подразумевается вообще.
-
-Пример уместного использования `Optional`: функция поиска пользователя по id, которая возвращает найденный объект либо `None`, если пользователь не найден:
-
-```python
-def find_user(user_id: int) -> Optional[dict]:
-    ...
-```
-
----
-
-## Задание 4. Предскажите вывод
-
-```python
-matrix = [[1, 2, 3], [4, 5, 6]]
-print(list(zip(matrix)))
-print(list(zip(*matrix)))
-```
-
-**Ответ:**
-```
-[([1, 2, 3],), ([4, 5, 6],)]
-[(1, 4), (2, 5), (3, 6)]
-```
-
-Пояснение: `zip(matrix)` получает один аргумент (весь список целиком) и упаковывает каждый его элемент (то есть каждую строку) в кортеж из одного элемента. `zip(*matrix)` распаковывает `matrix` в два отдельных аргумента — `[1, 2, 3]` и `[4, 5, 6]` — и объединяет их поэлементно по индексам, что и даёт транспонирование.
-
----
-
-## Задание 5. Заполните пропуски в таблице
-
-| Конструкция | Что делает | Пример |
-|---|---|---|
-| `first, *rest = [1, 2, 3, 4]` | Первый элемент — отдельно, всё остальное — списком | `first = 1`, `rest = [2, 3, 4]` |
-| `*init, last = [1, 2, 3, 4]` | Все элементы кроме последнего — списком, последний — отдельно | `init = [1, 2, 3]`, `last = 4` |
-| `{**d1, **d2}` | Слияние словарей в новый словарь; при совпадении ключей побеждает значение из `d2` (правый) | `{**{"a": 1, "b": 2}, **{"b": 3}} → {"a": 1, "b": 3}` |
-| `func(*args)` | Распаковывает итерируемый объект `args` в позиционные аргументы функции | `func(*(1, 2, 3))` эквивалентно `func(1, 2, 3)` |
-
----
-
-## Задание 6. Порядок выполнения декораторов - быстрый ответ
-
-```python
-@retry(times=5)
-def fetch(): ...
-```
-
-**Ответ:** `fetch = retry(times=5)(fetch)`
-
-Пояснение: сначала вызывается `retry(times=5)`, которая возвращает функцию `decorator` (замыкание, помнящее `times=5`). Затем `decorator` вызывается с `fetch` в качестве аргумента и возвращает `wrapper`, который и заменяет исходную `fetch`.
-
----
-
-## Задание 7. `dataclass` - быстрый ответ
-
-```python
-from dataclasses import dataclass
-
-@dataclass
-class Point:
-    x: int
-    y: int
-
-p1 = Point(1, 2)
-p2 = Point(1, 2)
-print(p1 == p2)
-print(p1 is p2)
-```
-
-**Ответ:**
-```
-True
-False
-```
-
-Пояснение: `@dataclass` автоматически генерирует `__eq__`, сравнивающий объекты **по значениям полей**, поэтому `p1 == p2` — `True`, хотя это два разных объекта в памяти. Оператор `is` сравнивает идентичность объектов (совпадение по ссылке), а `p1` и `p2` — разные экземпляры, поэтому `p1 is p2` — `False`.
-
----
-
-## Задание 8. Наследование vs композиция
-
-```python
-class BaseAggregator:
-    def __init__(self):
-        self._totals = {}
-
-    def add(self, category, amount):
-        self._totals[category] = self._totals.get(category, 0) + amount
+from typing import Any
 
 
-class ReportBuilder:
-    def __init__(self, aggregator: BaseAggregator) -> None:
-        self._aggregator = aggregator   # композиция: получаем готовый компонент
-
-    def build(self) -> str:
-        return "\n".join(f"{k}: {v}" for k, v in self._aggregator._totals.items())
-
-
-aggregator = BaseAggregator()
-aggregator.add("еда", 500)
-aggregator.add("транспорт", 200)
-
-builder = ReportBuilder(aggregator)
-print(builder.build())
-```
-
-Пояснение: вместо того чтобы `ReportBuilder` наследовался от `BaseAggregator` (`is-a` связь), он теперь **получает** готовый агрегатор через конструктор (`has-a` связь). Это позволяет подставлять любой другой агрегатор (в том числе мок для тестов) без изменения кода `ReportBuilder`.
-
----
-
-## Задание 9. `try/except/else/finally` - предскажите вывод
-
-```python
-def divide(a, b):
-    try:
-        result = a / b
-    except ZeroDivisionError:
-        print("Деление на ноль")
-        return None
-    else:
-        print("Успех")
-    finally:
-        print("Завершено")
+def merge_dicts(*dicts: dict, **overrides: Any) -> dict:
+    result: dict = {}
+    for d in dicts:
+        result.update(d)        # правый словарь перезаписывает левый
+    result.update(overrides)    # именованные аргументы - последними
     return result
-
-divide(10, 0)
 ```
 
-**Ответ:**
-```
-Деление на ноль
-Завершено
+### Проверка
+
+```python
+merge_dicts({"a": 1}, {"b": 2}, a=10)          # {'a': 10, 'b': 2}
+merge_dicts({"a": 1, "b": 1}, {"b": 2})        # {'a': 1, 'b': 2}
+merge_dicts()                                  # {}
 ```
 
-Пояснение: при `b = 0` возникает `ZeroDivisionError`, перехватывается блоком `except`, печатается сообщение, и функция делает `return None`. Блок `else` **не выполняется**, так как исключение было. А вот `finally` выполняется **всегда**, в том числе перед фактическим выходом из функции через `return` внутри `except` — поэтому "Завершено" всё равно печатается.
+### Альтернатива
+
+То же самое одной строкой через распаковку:
+
+```python
+def merge_dicts(*dicts: dict, **overrides: Any) -> dict:
+    return {k: v for d in (*dicts, overrides) for k, v in d.items()}
+```
 
 ---
 
-## Задание 10. Контекстный менеджер - базовый случай
+## Задание 2. Декоратор с повтором
+
+### Идея
+
+Декоратор с параметрами - это **три уровня вложенности**:
+
+1. `retry(times, exceptions)` принимает параметры и возвращает декоратор.
+2. `decorator(func)` принимает функцию и возвращает обёртку.
+3. `wrapper(*args, **kwargs)` вызывает функцию с повторами.
+
+Логика в `wrapper`:
+
+* делаем до `times` попыток в цикле;
+* при успехе сразу возвращаем результат;
+* если поймали исключение из `exceptions` и это **последняя** попытка, пробрасываем его через `raise`. Так сохраняется оригинальный traceback;
+* исключения, которых нет в `exceptions`, не перехватываются и вылетают сразу, без повторов;
+* `@functools.wraps(func)` копирует `__name__` и `__doc__` в обёртку, иначе `fetch.__name__` был бы `'wrapper'`.
+
+`times` считается как **общее число попыток**: `times=3` значит максимум три вызова функции (как в условии: «3 неудачи подряд»).
+
+### Решение
 
 ```python
-from contextlib import contextmanager
-import time
+import functools
+from typing import Any, Callable
 
-@contextmanager
-def timer():
-    start = time.perf_counter()
-    try:
-        yield
-    finally:
-        elapsed = time.perf_counter() - start
-        print(f"Блок выполнился за {elapsed:.4f} сек")
+
+def retry(
+    times: int,
+    exceptions: tuple[type[BaseException], ...],
+) -> Callable:
+    def decorator(func: Callable) -> Callable:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            for attempt in range(1, times + 1):
+                try:
+                    return func(*args, **kwargs)
+                except exceptions:
+                    if attempt == times:
+                        raise       # попытки закончились - пробрасываем последнее исключение
+        return wrapper
+    return decorator
 ```
 
-Пояснение: код после `yield` нужно обернуть в `try/finally`, чтобы сообщение о времени выполнения печаталось **независимо от того, было исключение внутри `with` или нет**. Если оставить исходный вариант без `try/finally`, то при возникновении исключения внутри блока `with` строки кода после `yield` (то есть подсчёт и печать времени) **не выполнятся** — исключение сразу вылетит наружу из генератора, минуя оставшийся код после `yield`, и очистка ресурса (в данном случае — вывод сообщения) будет пропущена.
+### Проверка
+
+```python
+import random
+
+
+@retry(times=3, exceptions=(ConnectionError,))
+def fetch():
+    outcome = random.choice(["success", "error1", "error2", "error3"])
+
+    if outcome == "success":
+        return {"status": "ok", "data": "some payload"}
+
+    if outcome == "error1":
+        raise ValueError("Error 1: invalid input")
+
+    if outcome == "error2":
+        raise RuntimeError("Error 2: server failure")
+
+    raise ConnectionError("Error 3: network unreachable")
+
+
+print(fetch.__name__)   # fetch
+fetch()
+# {'status': 'ok', 'data': 'some payload'}   - успех (с 1-й, 2-й или 3-й попытки)
+# ConnectionError: Error 3: network unreachable   - 3 неудачи подряд
+# ValueError: Error 1: invalid input         - сразу, без повторов
+# RuntimeError: Error 2: server failure      - сразу, без повторов
+```
+
+Детерминированная проверка без случайности:
+
+```python
+calls = 0
+
+
+@retry(times=3, exceptions=(ConnectionError,))
+def flaky():
+    global calls
+    calls += 1
+    if calls < 3:
+        raise ConnectionError("нет связи")
+    return "ok"
+
+
+print(flaky(), calls)   # ok 3
+```
+
+---
+
+## Задание 3. Класс `Money`
+
+### Идея
+
+Каждая возможность из условия соответствует магическому методу:
+
+| Требование | Метод |
+|---|---|
+| `a + b` | `__add__` |
+| `a - b` | `__sub__` |
+| `sum([...])` | `__radd__` |
+| `==` | `__eq__` |
+| `<`, `>` | `__lt__`, `__gt__` |
+| `repr` | `__repr__` |
+
+Важные моменты:
+
+* **Проверка валюты.** Вынесена в `_check`, чтобы не дублировать код в `+`, `-`, `<`, `>`. При разных валютах выбрасывается собственное исключение `CurrencyMismatchError`.
+* **`sum`.** Он начинает с числа `0` и делает `0 + Money(...)`. У `int` нет такой операции для `Money`, поэтому Python вызывает у правого операнда `__radd__`. Если `other == 0`, возвращаем сам объект, и цепочка складывается дальше.
+* **Сравнение с другим типом.** Если `other` не `Money`, возвращаем `NotImplemented`, а не бросаем ошибку. Тогда Python пробует обратную операцию, а потом применяет поведение по умолчанию. Для `==` результат будет `False` без исключения.
+* **`print`.** Если нет `__str__`, `print` использует `__repr__`, поэтому `print(Money(5, "RUB"))` выводит `Money(5, 'RUB')`.
+* **`!r` в f-строке** вызывает `repr`, поэтому строка валюты получает кавычки: `'RUB'`.
+
+### Решение
+
+```python
+class CurrencyMismatchError(Exception):
+    """Попытка выполнить операцию над деньгами в разных валютах."""
+
+
+class Money:
+    def __init__(self, amount: float, currency: str) -> None:
+        self.amount = amount
+        self.currency = currency
+
+    def _check(self, other: "Money") -> None:
+        if self.currency != other.currency:
+            raise CurrencyMismatchError(f"{self.currency} != {other.currency}")
+
+    def __add__(self, other: object) -> "Money":
+        if not isinstance(other, Money):
+            return NotImplemented
+        self._check(other)
+        return Money(self.amount + other.amount, self.currency)
+
+    def __radd__(self, other: object) -> "Money":
+        # нужен для sum(): первое сложение выглядит как 0 + Money(...)
+        if other == 0:
+            return self
+        return NotImplemented
+
+    def __sub__(self, other: object) -> "Money":
+        if not isinstance(other, Money):
+            return NotImplemented
+        self._check(other)
+        return Money(self.amount - other.amount, self.currency)
+
+    def __eq__(self, other: object) -> bool:
+        if not isinstance(other, Money):
+            return NotImplemented
+        return self.amount == other.amount and self.currency == other.currency
+
+    def __lt__(self, other: object) -> bool:
+        if not isinstance(other, Money):
+            return NotImplemented
+        self._check(other)
+        return self.amount < other.amount
+
+    def __gt__(self, other: object) -> bool:
+        if not isinstance(other, Money):
+            return NotImplemented
+        self._check(other)
+        return self.amount > other.amount
+
+    def __repr__(self) -> str:
+        return f"Money({self.amount!r}, {self.currency!r})"
+```
+
+### Проверка
+
+```python
+Money(5, "RUB") + Money(3, "RUB")              # Money(8, 'RUB')
+Money(5, "RUB") - Money(3, "RUB")              # Money(2, 'RUB')
+Money(5, "RUB") + Money(3, "USD")              # CurrencyMismatchError
+
+Money(1, "RUB") == Money(1, "RUB")             # True
+Money(1, "RUB") < Money(2, "RUB")              # True
+Money(1, "RUB") == 1                           # False (без ошибки)
+
+sum([Money(1, "RUB"), Money(2, "RUB")])        # Money(3, 'RUB')
+print(Money(5, "RUB"))                         # Money(5, 'RUB')
+```
+
+### Замечание
+
+Когда в классе определён `__eq__`, Python автоматически делает объект нехешируемым (`__hash__ = None`), то есть `Money` нельзя положить в `set` или использовать как ключ `dict`. В условии этого не требуется. Если понадобится, нужно добавить:
+
+```python
+def __hash__(self) -> int:
+    return hash((self.amount, self.currency))
+```
+
+---
+
+## Задание 4. Генераторы: чтение больших логов
+
+### Идея
+
+Каждая функция - генератор: она обрабатывает **одну строку за раз** и передаёт её дальше по цепочке. Благодаря этому файл никогда не загружается в память целиком, и работа останавливается, как только набрано нужное число записей.
+
+```text
+read_lines  ->  parse_log  ->  filter_level  ->  фильтр по модулю  ->  islice(10)
+ (строки)       (dict)          (только ERROR)    (только payments)    (первые 10)
+```
+
+* **`read_lines`.** Файл открывается через `with`, а цикл `for line in f` читает его построчно. Файл закроется сам, когда генератор будет исчерпан или закрыт.
+* **`parse_log`.** Строка делится по разделителю `" - "` с ограничением `maxsplit=3`. Так сообщение, содержащее ` - `, не разобьётся на лишние части. Миллисекунды (`,123`) отбрасываются через `split(",")[0]`, чтобы ключ `datetime` совпал с форматом из условия. Некорректные строки пропускаются.
+* **`filter_level`.** Генераторное выражение, которое пропускает только записи с нужным уровнем.
+* **Конвейер.** Фильтр по модулю задаётся ещё одним генераторным выражением. `itertools.islice(..., 10)` берёт первые 10 записей и останавливает всю цепочку, так что остаток файла даже не читается.
+
+### Решение
+
+```python
+import itertools
+from typing import Iterable, Iterator
+
+
+def read_lines(path: str) -> Iterator[str]:
+    """Лениво отдаёт строки файла."""
+    with open(path, encoding="utf-8") as f:
+        for line in f:
+            yield line.rstrip("\n")
+
+
+def parse_log(lines: Iterable[str]) -> Iterator[dict[str, str]]:
+    """Превращает строки лога в словари."""
+    for line in lines:
+        parts = line.split(" - ", 3)
+        if len(parts) != 4:          # пустая или повреждённая строка
+            continue
+        dt, level, module, message = parts
+        yield {
+            "datetime": dt.split(",")[0],   # отбрасываем миллисекунды
+            "level": level,
+            "module": module,
+            "message": message,
+        }
+
+
+def filter_level(records: Iterable[dict], level: str) -> Iterator[dict]:
+    """Оставляет записи с нужным уровнем."""
+    return (r for r in records if r["level"] == level)
+```
+
+### Конвейер
+
+```python
+records = parse_log(read_lines("app.log"))
+errors = filter_level(records, "ERROR")
+payments_errors = (r for r in errors if r["module"] == "payments")
+
+for record in itertools.islice(payments_errors, 10):
+    print(record)
+```
+
+### Проверка
+
+```python
+next(parse_log(["2026-06-04 00:50:14,123 - ERROR - payments - Card declined"]))
+# {'datetime': '2026-06-04 00:50:14', 'level': 'ERROR',
+#  'module': 'payments', 'message': 'Card declined'}
+```
+
+```python
+# Вывод конвейера (не более 10 строк):
+# {'datetime': '2026-06-04 00:50:14', 'level': 'ERROR', 'module': 'payments', 'message': 'Card declined'}
+# {'datetime': '2026-06-04 02:13:40', 'level': 'ERROR', 'module': 'payments', 'message': 'Timeout'}
+# ...
+```
