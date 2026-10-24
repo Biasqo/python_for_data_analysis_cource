@@ -1,0 +1,7 @@
+[flake8]
+exclude = 
+    *.ipynb,
+    .ipynb_checkpoints,
+    # Add other directories/files you want to exclude, e.g.:
+    .venv,
+    __pycache__
