@@ -2,15 +2,18 @@ from multiprocessing import Pool
 import time
 import sys
 
+
 def process_big_list(data):
     return sum(data)
 
+
 def process_by_index(idx):
-    chunk_size = 100_000 // 4  
+    chunk_size = 100_000 // 4
     start = idx * chunk_size
     end = start + chunk_size
     data = list(range(start, end))
     return sum(data)
+
 
 if __name__ == '__main__':
     # сериализация данных
@@ -28,4 +31,5 @@ if __name__ == '__main__':
     with Pool(4) as pool:
         results = pool.map(process_by_index, [0, 1, 2, 3])
     print(f"{time.time() - start:.2f} сек")
-    print(f"Сумма всех частей: {sum(results)}")  # должно быть равно sum(range(100_000))
+    # должно быть равно sum(range(100_000))
+    print(f"Сумма всех частей: {sum(results)}")
