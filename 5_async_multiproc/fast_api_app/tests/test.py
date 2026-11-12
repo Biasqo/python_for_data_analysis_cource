@@ -1,4 +1,5 @@
 import requests
+import time
 
 BASE = "http://127.0.0.1:8000"
 
@@ -13,6 +14,7 @@ def show(label, r):
 
 
 if __name__ == "__main__":
+    start_time = time.time()
     show("GET /", requests.get(f"{BASE}/"))
     show("GET /health", requests.get(f"{BASE}/health"))
     show("GET /items", requests.get(f"{BASE}/items"))
@@ -40,3 +42,4 @@ if __name__ == "__main__":
 
     show("POST /items invalid",
          requests.post(f"{BASE}/items", json={"name": "x", "price": "abc"}))
+    print(f"{time.time() - start_time:.2f} сек")

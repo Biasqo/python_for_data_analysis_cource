@@ -15,8 +15,8 @@ def cpu_bound(chunk):
 
 
 if __name__ == '__main__':
-    n = 50_000_000
-    chunks = 4
+    n = 1000000000
+    chunks = 8
     arr = np.arange(n, dtype=np.int32) % 1000
 
     start = time.time()
