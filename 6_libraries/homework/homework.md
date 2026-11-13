@@ -1,4 +1,4 @@
-# Домашнее задание 3.
+# Домашнее задание 3
 
 ```text
 Каждое задание оценивается в **4 балла**
@@ -7,9 +7,10 @@
 #### 1. Асинхронный загрузчик страниц
 
 **Описание**
+
 Нужно скачать 20 страниц. \
 Часть запросов падает с ошибкой, а сервер разрешает не более 5 одновременных соединений. \
-Сеть имитируется через `asyncio.sleep`. Функцию `fetch` менять нельзя. 
+Сетевое взаимодействие имитируется через `asyncio.sleep`. Функцию `fetch` менять нельзя. 
 
 ```python
 import asyncio
@@ -30,6 +31,7 @@ async def fetch(url: str) -> str:
 ```
 
 **Задание**
+
 * Напишите `fetch_with_retry(url, retries=3, delay=0.2)`: при `FetchError` ждёт `delay` секунд и повторяет попытку, после последней неудачной попытки пробрасывает исключение.
 * Напишите `download_all(urls, limit=5)`: загружает страницы конкурентно, не более `limit` одновременно, результаты возвращает в порядке `urls`.
 * Добавьте счётчик активных запросов и выведите его значение в пике.
@@ -42,64 +44,72 @@ async def fetch(url: str) -> str:
 Время: 4.5 с (последовательно: ~20 с)
 ```
 
-**Подсказка**
+**Подсказки**
+
 Используйте семафор для ограничения запросов. Использовать `time.sleep` внутри coroutine нельзя.
+Используйте только стандартные библиотеки.
 
-#### 2. TaskGroup, async for, async with
+#### 2. Асинхронные HTTP-запросы
 
-Данные читаются постранично через connection, каждая страница обрабатывается *отдельной* задачей. \
-Если обработка любой страницы падает, остальные задачи отменяются, а соединение должно быть закрыто.
+Получите текущую температуру в нескольких городах через открытое API Open-Meteo и сравните асинхронный и последовательный подходы. Установка: `pip install httpx`.
 
 ```python
 import asyncio
+import time
+import httpx
 
-TOTAL_PAGES = 10
-PAGE_SIZE = 5
-
-def make_record(record_id: int, poison_id: int | None) -> dict:
-    if record_id == poison_id:
-        value = -1
-    else:
-        value = record_id % 17 + 1
-    return {"id": record_id, "value": value}
+URL = "https://api.open-meteo.com/v1/forecast"
+CITIES = {
+    "Moscow": (55.75, 37.62),
+    "Berlin": (52.52, 13.41),
+    "Tokyo": (35.68, 139.69),
+    "New York": (40.71, -74.01),
+}
 ```
 
 **Задание**
-* `connection()` - асинхронный контекстный менеджер: при входе печатает `open` (ждёт 0.1 с), при выходе ждёт 0.1 с и печатает `close`, в том числе при исключении внутри блока.
-* `read_pages(conn, poison_id=None)` - асинхронный генератор: 10 раз ждёт 0.2 с и отдаёт страницу из 5 записей (через `make_record`, `id` сквозные: 0, 1, 2, ...).
-* `process_page(page)` - ждёт 0.1 с и возвращает сумму `value` по странице, при `value < 0` бросает `ValueError`.
-* `run(poison_id)` - открывает `connection`, внутри `TaskGroup` читает страницы через `async for` и создаёт задачи, ошибки ловит через `except*`.
-* Запустите `run(None)` и `run(42)`.
-* В `markdown` ячейке или комментарии ответьте: чем `TaskGroup` отличается от `asyncio.gather` при ошибке в одной из задач?
+Напишите:
+1. Функцию `fetch_temp(client, city, lat, lon)` - делает `GET` запрос на `URL` с параметрами `latitude`, `longitude` и `current="temperature_2m"` (передайте их через `params=`), проверяет статус через `raise_for_status()`, возвращает `(city, температура)`. Температура лежит в `json["current"]["temperature_2m"]`.
+2. `run(cities)` - замеряет время, открывает `httpx.AsyncClient()` через `async with`, внутри `TaskGroup` создаёт задачу `fetch_temp` для каждого города. После выхода из `TaskGroup` печатает `city: temp °C` и время работы.
+3. `run_sequential(cities)` - то же самое, но запросы идут по очереди, без `TaskGroup`.
+4. Запустите `run(CITIES)` и `run_sequential(CITIES)`.
+5. В `markdown`-ячейке или комментарии ответьте: во сколько раз асинхронная версия быстрее и почему?
 
-**Примеры**
+**Пример вывода** (числа и время будут отличаться)
+
 ```text
-run(None):
-open
-close
-total 442
+run(CITIES):
+Moscow: 8.3 °C
+...
+time 0.4
 
-run(42):
-open
-close
-caught: ValueError('negative')
+run_sequential(CITIES):
+Moscow: 8.3 °C
+...
+time 1.5
 ```
 
-**Подсказка**
-Контекстный менеджер можно написать через `@asynccontextmanager` из `contextlib`. При ошибке `TaskGroup` отменяет все дочерние задачи и собирает исключения в `ExceptionGroup`.
+**Подсказки**
+
+* Документация Open-Meteo: https://open-meteo.com/en/docs
+* API - это обычный адрес в интернете. При отправка на него запроса, в ответ вы получите данные в формате JSON. В Python его можно прочитать как словарь: `response.json()`.
+* Параметры запроса передаются в `params=`: `client.get(URL, params={"latitude": lat, "longitude": lon, "current": "temperature_2m"})`. Библиотека сама допишет их к адресу после `?`.
+* Чтобы увидеть, как выглядит ответ, откройте в браузере `https://api.open-meteo.com/v1/forecast?latitude=40.18&longitude=44.51&current=temperature_2m`. Температура лежит в `["current"]["temperature_2m"]`.
+* Справка по `httpx` (асинхронный клиент, `params=`, `raise_for_status()`): https://www.python-httpx.org/async/
+* Результат задачи берите через `.result()` после выхода из `TaskGroup`.
 
 #### 3. Работа с данными
 
-**Описание**
-Нужно построить отчёт «топ-3 категории по выручке в каждом регионе» двумя способами и сравнить их.
+Постройте отчёт «топ-3 категории по выручке в каждом регионе» на **pandas** и на **Polars** и сравните их. 
+Потребуется установка: `pip install pandas polars numpy pyarrow`.
 
-Подготовка данных (установите `pandas`, `polars`, `numpy`, `pyarrow`):
+Генерация тестовых данных:
 ```python
 from pathlib import Path
 import numpy as np
 import pandas as pd
 
-N = 3_000_000
+N = 10_000_000
 rng = np.random.default_rng(42)
 Path("data").mkdir(exist_ok=True)
 
@@ -115,44 +125,32 @@ orders.loc[rng.random(N) < 0.02, "amount"] = np.nan
 
 customers = pd.DataFrame({
     "customer_id": np.arange(1, 50_001),
-    "region":  rng.choice(["Москва", "Урал", "Сибирь", "Юг", "Поволжье"], 50_000),
-    "segment": rng.choice(["B2C", "B2B"], 50_000, p=[0.8, 0.2]),
+    "region": rng.choice(["Москва", "Урал", "Сибирь", "Юг", "Поволжье"], 50_000),
 })
 
-orders.to_parquet("data/orders.parquet", index=False)
-customers.to_parquet("data/customers.parquet", index=False)
+orders.to_parquet("orders.parquet", index=False)
+customers.to_parquet("customers.parquet", index=False)
 ```
 
 **Задание**
-Реализуйте один и тот же пайплайн на **pandas** и на **Polars** (Lazy API, `scan_parquet`):
-* Прочитайте `orders.parquet` и `customers.parquet`.
-* Уберите заказы с пропуском в `amount`, оставьте только `amount > 100`.
-* Добавьте столбец `month` - номер месяца из `order_dt`.
-* Присоедините клиентов (`INNER JOIN` по `customer_id`).
-* Сгруппируйте по `region` и `category`: `revenue` (сумма), `avg_check` (среднее), `orders_count`, `unique_customers`.
-* Для каждого региона оставьте 3 категории с наибольшей выручкой, сортировка по `region`, затем по `revenue` по убыванию.
-
-Затем:
-* Проверьте, что результаты pandas и Polars совпадают (с допуском на ошибки `float`).
-* Замерьте время (медиана из 3 запусков) и память таблицы заказов.
-* В `markdown` ячейке напишите выводы (4-6 предложений): во сколько раз Polars быстрее (или медленнее), почему, и в каком случае вы выберете pandas.
+* Прочитайте оба файла, уберите заказы без `amount` и оставьте только `amount > 100`.
+* Заджойните клиентов по `customer_id`. (в пандас это `merge` в поларсе `join`)
+* Сгруппируйте по `region` и `category`: `revenue` (сумма), `avg_check` (среднее), `orders_count`.
+* Для каждого региона оставьте 3 категории с наибольшей выручкой.
+* Сделайте это на pandas и на Polars, проверьте, что результаты совпадают.
+* Замерьте время каждого варианта.
+* В `markdown` ячейке напишите вывод (3-4 предложения): какой вариант быстрее и почему.
 
 **Примеры**
 ```text
-region    category     revenue  avg_check  orders_count  unique_customers
-Москва    электроника  ...      ...        ...           ...
-Москва    еда          ...      ...        ...           ...
-Москва    одежда       ...      ...        ...           ...
+region    category     revenue  avg_check  orders_count
+Москва    электроника  ...      ...        ...
+Москва    еда          ...      ...        ...
+Москва    одежда       ...      ...        ...
 Поволжье  ...
 ```
 
-| Вариант | Время, с | Память, МБ |
-|---|---|---|
-| pandas | ... | ... |
-| Polars (lazy) | ... | ... |
+**Подсказки**
 
-**Подсказка**
-* Пропуск в pandas - `NaN`, в Polars - `null` (используйте `is_not_null()`).
-* Агрегации одного столбца в Polars называйте через `.alias(...)`.
-* `group_by` в Polars не гарантирует порядок строк - сортируйте явно.
-* Память: `df.memory_usage(deep=True).sum()` в pandas и `df.estimated_size()` в Polars.
+Пропуск в pandas - `NaN`, в Polars - `null`. 
+Порядок строк после `group_by` в Polars не гарантирован, сортируйте явно.
