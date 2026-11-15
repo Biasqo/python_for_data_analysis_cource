@@ -1,326 +1,418 @@
-# 01 – Workflow Orchestration in Python (Airflow & Co.)
+# 08. Оркестрация пайплайнов в Python (Airflow и др.)
 
-**Level:** Master's degree (Data Engineering / MLOps / Big Data)
-**Duration:** 60 minutes (≈ 25 min lecture + 30 min hands-on + 5 min wrap-up)
-**Companion notebook:** `01_orchestration.ipynb`
-**Prerequisites:** Python (functions, decorators, `datetime`), basic SQL/ETL notions, command line
+## 1. Зачем нужна оркестрация
+
+Пайплайн из скриптов под cron:
+
+```
+02:00  extract.py      ──┐
+02:30  transform.py    ──┼──▶  «надеемся, что предыдущий уже закончился»
+03:00  load.py         ──┘
+```
+
+Что не так:
+
+```
+Проблема                      Последствие
+──────────────────────────────────────────────────────────────
+Зависимости заданы временем   extract задержался -> load взял старые данные
+Нет повторов и алертов        об ошибке узнаёт заказчик, а не система
+Нет истории запусков          непонятно, что и когда выполнялось
+Нет backfill                  пересчёт за месяц = ручной цикл в shell
+Нет контроля параллельности   всё сразу или всё по очереди
+```
+
+**Оркестрация** это определение, запуск, мониторинг и восстановление *зависимых* задач: автоматически и воспроизводимо.
+
+```
+┌───────────────┬─────────────────────────────────┬────────────────────────┐
+│ Роль          │ Что делает                      │ Примеры                │
+├───────────────┼─────────────────────────────────┼────────────────────────┤
+│ Планировщик   │ запускает команду по времени    │ cron, systemd timers   │
+│ ОРКЕСТРАТОР   │ зависимости, состояние, повторы │ Airflow, Prefect,      │
+│               │ история                         │ Dagster                │
+│ Вычислитель   │ тяжёлые расчёты                 │ Spark, dbt, pandas, DWH│
+│ Стриминг      │ непрерывная обработка           │ Kafka Streams, Flink   │
+└───────────────┴─────────────────────────────────┴────────────────────────┘
+```
+
+> **Главный принцип:** оркестратор *управляет*, а не *считает*. Тяжёлую работу он отдаёт Spark, хранилищу или контейнеру.
 
 ---
 
-## Learning objectives
+## 2. Ключевые понятия
 
-By the end of this session, students can:
+### 2.1 DAG: ориентированный граф без циклов
 
-1. **Define** orchestration and distinguish it from scheduling, ETL tools and streaming.
-2. **Model** a pipeline as a DAG and reason about dependencies, retries, idempotency and backfills.
-3. **Explain** the architecture of Apache Airflow (scheduler, executor, workers, metadata DB, API server / webserver, triggerer, dag-processor).
-4. **Write** a production-style Airflow DAG with the TaskFlow API, dynamic task mapping and trigger rules.
-5. **Compare** Airflow with Prefect, Dagster, Luigi, Argo/Kubeflow and Temporal, and **choose** a tool for a given scenario.
+Узлы это задачи, рёбра это зависимости («B после A»). Циклов нет, поэтому существует порядок выполнения (топологическая сортировка). В стандартной библиотеке Python для этого есть `graphlib.TopologicalSorter`.
+
+```
+extract_eu   ─┐
+extract_us   ─┼──▶ transform ──▶ load ──▶ notify
+extract_asia ─┘
+     ▲
+     └── три источника независимы -> идут параллельно
+```
+
+Граф с циклом выполнить невозможно:
+
+```
+   ┌─────┐       ┌─────┐
+   │  a  │──────▶│  b  │      a ждёт b, b ждёт a -> порядка нет
+   └─────┘◀──────└─────┘      (CycleError)
+```
+
+### 2.2 Состояния задачи
+
+```
+                      ┌─────────────────────────────┐
+                      │                             ▼
+ pending ──▶ running ──┬──▶ success                 (повтор)
+                       │                             │
+                       └──▶ failed ──(retries > 0)──┘
+                              │
+                              └─▶ все потомки получают upstream_failed
+```
+
+Если родитель упал, потомки **не запускаются** и помечаются `upstream_failed`.
+
+### 2.3 Повторы с экспоненциальной паузой
+
+```
+попытка 1 ──✗── пауза 0.2 с ── попытка 2 ──✗── пауза 0.4 с ── попытка 3 ──✓
+                  (delay × 2⁰)                   (delay × 2¹)
+```
+
+Повторы лечат временные сбои (сеть, лимиты API). Алерт нужен, только когда автоматика сдалась.
+
+### 2.4 Идемпотентность: самое важное свойство
+
+Задача **идемпотентна**, если N запусков с одним входом дают тот же результат, что один запуск.
+
+```
+ ПЛОХО: дописывать (append)             ХОРОШО: перезаписать партицию
+
+ запуск 1 -> [строка]                   запуск 1 -> ds=2025-01-01/ [строка]
+ запуск 2 -> [строка][строка]           запуск 2 -> ds=2025-01-01/ [строка]
+ запуск 3 -> [строка][строка][строка]   запуск 3 -> ds=2025-01-01/ [строка]
+              дубли!                                 всегда одно и то же
+```
+
+Правила: задача **атомарна** (всё или ничего, запись через временный файл и `rename`), **без скрытого состояния**, **параметризована логической датой, а не `now()`**.
+
+### 2.5 Логическая дата и интервал данных
+
+```
+ логическая дата 2025-03-10 (ds)
+         │
+         ▼
+ ├───────────────────────────┤
+ 03-10 00:00             03-11 00:00
+ └── данные, которые обрабатываем ──┘
+                                   ▲
+                    запуск стартует ПОСЛЕ окончания интервала
+```
+
+Запуск определяется логической датой, а не временем на часах. Поэтому перезапуски и backfill воспроизводимы.
+
+### 2.6 Backfill
+
+Повторный прогон пайплайна за диапазон прошлых дат (исправили баг, добавили источник).
+
+```
+ ds=01-01  ds=01-02  ds=01-03  ds=01-04  ds=01-05
+    │         │         │         │         │
+    └─────────┴────┬────┴─────────┴─────────┘
+                   ▼
+        один и тот же DAG, 5 запусков
+        (работает только если задача идемпотентна и зависит от ds)
+```
 
 ---
 
-## Session plan (60 min)
+## 3. Apache Airflow
 
-| Time | Block | Format |
-|------|-------|--------|
-| 0–8 | 1. Why orchestration? | Lecture + live failure demo |
-| 8–15 | 2. Core concepts (DAG, idempotency, backfill, retries) | Lecture |
-| 15–30 | 3. Apache Airflow in depth | Lecture + code |
-| 30–38 | 4. Landscape: Prefect, Dagster, Luigi, Argo, Temporal | Lecture / discussion |
-| 38–55 | 5. Hands-on: build a mini-orchestrator, then a real Airflow DAG | Notebook |
-| 55–60 | 6. Wrap-up, quiz, take-home work | Interactive |
+Создан в Airbnb (2014), топ-проект Apache с 2019 года. **Пайплайны как код на Python.** Актуальная линия: Airflow 3.x.
 
----
-
-## 1. Why orchestration? (8 min)
-
-### The problem
-A "pipeline" quickly becomes a set of scripts glued by `cron`:
+### 3.1 Архитектура
 
 ```
-0 2 * * *  python extract.py
-30 2 * * * python transform.py     # hope extract finished...
-0 3 * * *  python load.py          # hope transform finished...
+┌────────────┐  парсинг   ┌───────────────┐
+│ файлы DAG  │──────────▶ │ DAG processor │
+└────────────┘            └──────┬────────┘
+                                 │ сериализованные DAG
+        ┌────────────┐    ┌──────▼─────────┐        ┌───────────────┐
+Пользо- │ UI / API   │───▶│ БД метаданных  │◀──────▶│  Scheduler    │
+ватель─▶│ server     │    │ (Postgres)     │        │ (планировщик) │
+        └────────────┘    └──────▲─────────┘        └──────┬────────┘
+                                 │ состояние               │ ставит в очередь
+                          ┌──────┴─────────┐        ┌──────▼────────┐
+                          │    Workers     │◀───────│   Executor    │
+                          │  (выполняют)   │        │ Local / Celery│
+                          └────────────────┘        │ / Kubernetes  │
+                                                    └───────────────┘
+   Triggerer: ждёт события в асинхронных (deferrable) операторах, не занимая воркер
 ```
 
-Failure modes of this approach:
-
-- **Implicit dependencies** – timing guesses instead of explicit ordering.
-- **No retries / alerting** – failure is discovered by a stakeholder, not by the system.
-- **No history** – what ran, when, how long, with which parameters?
-- **No backfill** – re-processing last month means manual shell loops.
-- **No parallelism / resource control** – everything runs on one machine, or all at once.
-
-### Definition
-> **Orchestration** = defining, scheduling, executing, monitoring and recovering *dependent* tasks across systems, automatically and reproducibly.
-
-| Concept | Does | Example |
-|---|---|---|
-| Scheduler (cron) | Triggers a command at a time | `cron`, `systemd timers` |
-| **Orchestrator** | Manages dependencies, state, retries, history | Airflow, Prefect, Dagster |
-| Processing engine | Does the heavy computation | Spark, dbt, pandas, SQL warehouse |
-| Streaming engine | Continuous, low-latency processing | Kafka Streams, Flink |
-
-**Key principle:** *the orchestrator orchestrates, it does not compute.* Heavy work is delegated to Spark, a warehouse, a container, etc.
-
----
-
-## 2. Core concepts (7 min)
-
-### 2.1 DAG – Directed Acyclic Graph
-- **Nodes** = tasks; **edges** = dependencies ("B runs after A").
-- **Acyclic** = no cycles, so a valid execution order exists (topological order).
-- Python's standard library already ships a solver: `graphlib.TopologicalSorter`.
-
-```
-extract_eu ─┐
-extract_us ─┼─> transform ─> load ─> notify
-extract_ap ─┘
-```
-
-### 2.2 Task states
-`queued → running → success | failed | up_for_retry | upstream_failed | skipped`
-
-### 2.3 Idempotency (the most important property)
-A task is **idempotent** if running it N times with the same input gives the same result as running it once.
-
-- ❌ `INSERT INTO sales SELECT ... WHERE day = today` (duplicates on retry)
-- ✅ `DELETE ... WHERE day = :ds; INSERT ...` or `MERGE`/`UPSERT`, or overwrite partition `sales/ds=2025-01-01/`
-
-Related rules: **atomic** tasks (all-or-nothing), **no hidden state**, **parametrize by logical date, never by `now()`**.
-
-### 2.4 Data interval & logical date
-A daily run labelled `2025-01-01` processes data from `2025-01-01 00:00` to `2025-01-02 00:00` and **starts after the interval ends**. The run is identified by its *logical date* (`ds`), not by wall-clock time. This is what makes **backfills** and **reruns** reproducible.
-
-### 2.5 Retries, timeouts, SLAs
-Retries with exponential backoff handle transient errors (network, rate limits). Timeouts prevent zombie tasks. Alerts/callbacks notify humans only when automation gives up.
-
-### 2.6 Backfill & catchup
-Re-running the pipeline for a past range of logical dates (new logic, bug fix, new source). Works only if tasks are idempotent and parametrized by logical date.
-
----
-
-## 3. Apache Airflow in depth (15 min)
-
-Created at Airbnb (2014), Apache top-level project (2019). **Workflows as code in Python.** Airflow 3.x (2025+) is the current major line.
-
-### 3.1 Architecture
-
-```
-┌────────────┐   parse    ┌──────────────┐
-│ DAG files  │──────────▶ │ DAG processor│
-└────────────┘            └──────┬───────┘
-                                 │ serialized DAGs
-                         ┌───────▼────────┐        ┌───────────────┐
- Users ─▶ UI / API ─────▶│  Metadata DB   │◀──────▶│   Scheduler   │
- server                  │ (Postgres)     │        └──────┬────────┘
-                         └───────▲────────┘               │ queue tasks
-                                 │ state                  ▼
-                         ┌───────┴────────┐        ┌───────────────┐
-                         │    Workers     │◀───────│   Executor    │
-                         └────────────────┘        │ Local/Celery/ │
-                                                   │ Kubernetes    │
-                                                   └───────────────┘
-          Triggerer: runs async "deferrable" operators (waits without holding a worker slot)
-```
-
-| Component | Role |
+| Компонент | Роль |
 |---|---|
-| **DAG processor** | Parses Python files, stores serialized DAGs |
-| **Scheduler** | Decides which task instances are ready, creates runs |
-| **Executor** | *How/where* tasks run: `LocalExecutor`, `CeleryExecutor`, `KubernetesExecutor` |
-| **Workers** | Actually execute task code |
-| **Metadata DB** | Single source of truth for state (use Postgres in prod, never SQLite) |
-| **API server / UI** | Monitoring, triggering, logs (Airflow 3: new React UI + REST API; task code talks to the API via the Task SDK) |
-| **Triggerer** | Event loop for deferrable operators/sensors |
+| **DAG processor** | Парсит `.py`-файлы, сохраняет DAG |
+| **Scheduler** | Решает, какие задачи готовы, создаёт запуски |
+| **Executor** | **Как и где** выполнять: Local, Celery, Kubernetes |
+| **Workers** | Выполняют код задач |
+| **БД метаданных** | Единый источник правды о состоянии (в проде Postgres, не SQLite) |
+| **API server / UI** | Мониторинг, ручной запуск, логи |
+| **Triggerer** | Цикл событий для deferrable-операторов |
 
-> Airflow 2 → 3 notes: imports move to `airflow.sdk` (`from airflow.sdk import dag, task`); `schedule_interval` and `execution_date` are removed (use `schedule`, `logical_date`); `catchup` defaults to `False`; *Datasets* become *Assets*.
+> **Scheduler vs Executor:** scheduler решает *что и когда* запускать, executor решает *как и где* это выполнить.
 
-### 3.2 A modern DAG (TaskFlow API)
+### 3.2 Наш DAG (часть D)
 
-```python
-import pendulum
-from airflow.sdk import dag, task      # Airflow 2.x: from airflow.decorators import dag, task
-
-@dag(
-    dag_id="sales_etl",
-    schedule="@daily",
-    start_date=pendulum.datetime(2025, 1, 1, tz="UTC"),
-    catchup=False,
-    default_args={"retries": 2},
-    tags=["course"],
-)
-def sales_etl():
-
-    @task
-    def list_regions() -> list[str]:
-        return ["eu", "us", "apac"]
-
-    @task
-    def extract(region: str) -> dict:
-        ...
-        return {"region": region, "rows": 123}
-
-    @task
-    def load(batches: list[dict]) -> int:
-        return sum(b["rows"] for b in batches)
-
-    batches = extract.expand(region=list_regions())   # dynamic task mapping
-    load(batches)
-
-sales_etl()
+```
+list_regions ──▶ extract[eu]   ──▶ transform[eu]   ─┐
+  ["eu","us",    extract[us]   ──▶ transform[us]   ─┼──▶ load ──▶ notify
+   "apac"]       extract[apac] ──▶ transform[apac] ─┘     │        │
+                                                          │        └ trigger_rule="all_done"
+ └─ .expand(): по одной задаче на регион                  │          (выполнится даже при ошибке)
+    (динамический маппинг, число задач                    └ возвращает путь к файлу,
+     определяется данными в момент запуска)                 а не сами данные
 ```
 
-### 3.3 Key building blocks
+### 3.3 Основные возможности
 
-| Feature | What it gives you |
+| Возможность | Что даёт |
 |---|---|
-| **Operators** | Reusable task templates: `BashOperator`, `SQLExecuteQueryOperator`, `KubernetesPodOperator`, provider operators for Spark, dbt, BigQuery, S3… |
-| **TaskFlow (`@task`)** | Python functions as tasks; return values passed automatically via XCom |
-| **XCom** | Small metadata between tasks (KBs!). **Never pass DataFrames** – pass paths/URIs |
-| **Sensors / Deferrable operators** | Wait for a file, partition, API state without wasting worker slots |
-| **Dynamic task mapping** (`.expand`) | Fan-out at runtime based on data (one task per file/region/partition) |
-| **Trigger rules** | `all_success` (default), `all_done`, `one_failed`, `none_failed`… for cleanup/alert tasks |
-| **Pools / concurrency** | Protect databases and APIs (`pool`, `max_active_tasks`, `max_active_runs`) |
-| **Connections & Variables / Secrets backends** | Credentials outside the code |
-| **Assets (ex-Datasets)** | Data-aware scheduling: "run when upstream data is updated" |
-| **Params & templating (Jinja)** | `{{ ds }}`, `{{ data_interval_start }}` in SQL/bash |
-| **Callbacks / SLAs / alerts** | `on_failure_callback`, email, Slack |
+| **Операторы** | Готовые шаблоны задач: Bash, SQL, Kubernetes, Spark, dbt, S3... |
+| **TaskFlow (`@task`)** | Python-функция = задача; значения передаются через XCom автоматически |
+| **XCom** | Передача **маленьких** метаданных. Не передавайте DataFrame, передавайте путь или имя таблицы |
+| **Dynamic task mapping (`.expand`)** | Число задач определяется данными во время запуска |
+| **Trigger rules** | `all_success` (по умолчанию), `all_done`, `one_failed`: для уведомлений и очистки |
+| **Sensors / deferrable** | Ожидание файла или события без занятого воркера |
+| **Pools, concurrency** | Защита БД и API от перегрузки |
+| **Assets** | Запуск по обновлению данных, а не только по времени |
 
-### 3.4 Airflow best practices
-1. Idempotent, atomic, parametrized tasks.
-2. **Top-level DAG code must be cheap**: no DB/API calls at import time (the file is parsed constantly).
-3. Delegate heavy compute; keep tasks short and orchestration-only.
-4. Pass **references** (S3 path, table name) via XCom, not data.
-5. Use `retries` + `retry_exponential_backoff`, set `execution_timeout`.
-6. Keep DAGs in Git, test in CI (`DagBag` import test, unit tests on task functions).
-7. Never use `datetime.now()` inside tasks for business logic.
-8. Pin versions (use official constraint files when installing).
+### 3.4 Правила хорошего DAG
 
-### 3.5 Typical Airflow weaknesses
-- Not designed for event-driven / low-latency / streaming workloads.
-- Local dev and testing used to be heavy (improved in v3).
-- Operational burden (scheduler, DB, executor tuning) – hence managed offerings (MWAA, Cloud Composer, Astronomer).
+```
+✅ идемпотентные, атомарные задачи, параметризованные ds
+✅ в корне файла DAG нет тяжёлого кода (файл парсится постоянно)
+✅ тяжёлые расчёты отдаём Spark/DWH, задачи короткие
+✅ через XCom ходят ссылки, а не данные
+✅ retries + exponential backoff + execution_timeout
+✅ DAG в Git, проверка DagBag в CI
+❌ datetime.now() в бизнес-логике
+❌ запросы к БД и API при импорте файла
+```
+
+### 3.5 Слабые места Airflow
+
+- Не рассчитан на событийные задачи с малой задержкой и стриминг.
+- Нужно администрировать scheduler, БД и executor (поэтому есть облачные версии: MWAA, Cloud Composer, Astronomer).
 
 ---
 
-## 4. The Python orchestration landscape (8 min)
+## 4. Практика: ноутбук `08_orchestration.ipynb`
 
-| Tool | Paradigm | Strengths | Watch out |
+Выполняйте ячейки сверху вниз. После каждой части сверьтесь с блоком «Должно получиться».
+
+### Часть 0. Установка Airflow (1 мин, запустить первой)
+
+Запустите ячейку сразу. Установка идёт в фоне, ждать её не нужно: работайте дальше. Результат проверит ячейка части D.
+
+```
+Должно получиться:  «Установка запущена в фоне, лог: airflow_install.log»
+                    (или «Airflow уже установлен»)
+```
+
+### Часть A. Наивный пайплайн (2 мин)
+
+Три функции вызываются подряд, источник падает в 60% случаев.
+
+```
+Должно получиться:
+  Пайплайн упал: ConnectionError('API timeout')
+  Никто не повторил попытку, никто не уведомлён, истории запусков нет.
+```
+
+Ответьте себе на вопрос из ячейки: чего не хватает? (повторы, состояние, логи, зависимости, параллельность, алерты, backfill). Остальное занятие добавляет это по частям.
+
+### Часть B. Мини-оркестратор (10 мин)
+
+Около 60 строк на стандартной библиотеке. Соответствие настоящему Airflow:
+
+```
+ Наш код                          Аналог в Airflow
+ ──────────────────────────────────────────────────────────
+ MiniDAG, @dag.task               DAG, @task
+ TopologicalSorter                порядок зависимостей
+ ThreadPoolExecutor               Executor + Workers
+ State (enum)                     состояния task instance
+ retries + time.sleep(2**n)       retries + retry_exponential_backoff
+ results[...] как аргументы       XCom
+ upstream_failed                  одноимённое состояние
+```
+
+Выполните по порядку четыре ячейки.
+
+**B.1 Определение класса `MiniDAG`.** Вывода нет.
+
+**B.2 Пайплайн `sales_etl`.**
+
+```
+Должно получиться (время в логе у вас другое, порядок строк может немного отличаться):
+
+  sales_etl: extract_eu: попытка 1/4
+  sales_etl: extract_us: попытка 1/4          ◀── три extract стартуют ОДНОВРЕМЕННО
+  sales_etl: extract_asia: попытка 1/1
+  sales_etl: extract_us: ошибка ConnectionError('API timeout')
+  sales_etl: extract_us: попытка 2/4          ◀── повтор через 0.2 с
+  sales_etl: extract_us: ошибка ConnectionError('API timeout')
+  sales_etl: extract_us: попытка 3/4          ◀── повтор через 0.4 с
+  sales_etl: extract_us -> success
+  sales_etl: transform -> success             ◀── ждал все три extract
+     >>> загрузка [10, 20, 30, 40, 50, 60] за 2025-01-01
+  sales_etl: load -> success
+  {'extract_eu': 'success', ..., 'load': 'success'}
+```
+
+Строки лога из разных потоков могут слипаться: это нормально.
+
+Что проверить:
+1. Три `extract` начались в одну и ту же долю секунды (параллельность).
+2. `extract_us` упал дважды и выполнился с третьей попытки (повторы).
+3. `load` стартовал только после `transform`.
+
+**B.3 Падение навсегда.**
+
+```
+Должно получиться:
+  {'extract_a': 'failed', 'extract_b': 'success',
+   'transform': 'upstream_failed', 'load': 'upstream_failed'}
+```
+
+**B.4 Цикл.**
+
+```
+Должно получиться:  Отклонено, цикл: ['a', 'b', 'a']
+```
+
+### Часть C. Идемпотентность и backfill (5 мин)
+
+Две версии одной задачи `load` запускаются трижды (как два повтора плюс первый запуск).
+
+```
+Должно получиться:
+  bad : 3 строк за один день (дубли!)
+  good: 1 строка за один день
+```
+
+Следующая ячейка делает backfill за 5 дней:
+
+```
+Должно получиться:
+  ['ds=2025-01-01', 'ds=2025-01-02', 'ds=2025-01-03', 'ds=2025-01-04', 'ds=2025-01-05']
+```
+
+Вывод: backfill возможен, потому что задача зависит от `ds` и перезаписывает партицию.
+
+### Часть D. Настоящий DAG в Airflow (8 мин)
+
+```
+ D.1 ждём установку,   D.2 записываем     D.3 парсим         D.4 запускаем      D.5 смотрим
+ задаём окружение  ──▶ файл DAG        ──▶ через DagBag   ──▶ airflow dags  ──▶  результат
+ (import airflow)      (%%writefile)       (ошибки, задачи)   test за 2025-01-03   на диске
+```
+
+**D.1** Ячейка дождётся окончания установки и подготовит папку `airflow_home`.
+
+```
+Должно получиться:  Airflow 3.0.6   (или установленная вами версия)
+```
+
+**D.2** `%%writefile` сохраняет файл `airflow_home/dags/sales_etl.py`. Прочитайте код и найдите:
+- `@dag(...)` с расписанием `@daily` и повторами в `default_args`;
+- `extract.expand(region=regions)`: динамический маппинг;
+- `load` пишет в партицию `ds=...` через временный файл и `replace` (идемпотентность);
+- `trigger_rule="all_done"` у `notify`;
+- в корне файла нет тяжёлого кода и нет `datetime.now()`.
+
+**D.3** Парсинг DAG (то, что должен делать CI).
+
+```
+Должно получиться:
+  Ошибки импорта: нет
+  Задачи: ['list_regions', 'extract', 'transform', 'load', 'notify']
+```
+
+**D.4** `airflow db migrate` создаёт БД метаданных (SQLite, для обучения), `airflow dags test` выполняет один запуск без планировщика. Лог длинный. Ищите в конце строки:
+
+```
+  Пайплайн завершён. Результат: /tmp/airflow_course_out/ds=2025-01-03/data.json
+  ... DagRun Finished: dag_id=sales_etl, logical_date=2025-01-03 ... state=success
+```
+
+**D.5** Результат на диске:
+
+```
+Должно получиться:
+  /tmp/airflow_course_out/ds=2025-01-03/data.json
+  [{"region": "eu", "rows": 153, "rows_clean": 145},
+   {"region": "us", "rows": 194, "rows_clean": 184},
+   {"region": "apac", "rows": 195, "rows_clean": 185}]
+```
+
+Числа детерминированы: они зависят только от региона и даты. Запустите `dags test` ещё раз: файл перезапишется, дублей не будет (идемпотентность).
+
+**Если останется время**, в терминале (не в ноутбуке) выполните `airflow standalone` и откройте <http://localhost:8080>: посмотрите Grid view, Graph view, логи и mapped task instances. Шпаргалка команд есть в ноутбуке.
+
+---
+
+## 5. Сравнение инструментов
+
+```
+                       ┌─ по расписанию, задачи в графе ──▶ Airflow
+ Как описываем работу? ├─ обычный Python, динамика ───────▶ Prefect
+                       └─ описываем ДАННЫЕ (assets) ──────▶ Dagster
+```
+
+| | Airflow | Prefect | Dagster |
 |---|---|---|---|
-| **Airflow** | Task-centric DAGs, scheduled | Huge ecosystem of providers, mature, industry standard | Ops overhead, schedule-oriented |
-| **Prefect** | Python-first flows, dynamic, event-driven | Very low boilerplate, native dynamic workflows, easy local run | Smaller provider ecosystem |
-| **Dagster** | **Asset-centric** (data assets, lineage) | Software-defined assets, typed IO, great testing & lineage, dbt integration | Different mental model |
-| **Luigi** (Spotify) | Target-based pipelines | Simple, file-target dependency model | Dated, no built-in scheduler, small community |
-| **Argo Workflows / Kubeflow Pipelines** | Container/K8s-native YAML or SDK | Great for ML on Kubernetes | Requires K8s |
-| **Temporal / Celery** | Durable execution / task queue | Long-running business processes, exactly-once semantics | Not data-pipeline oriented |
-| **dbt (+ Cosmos)** | SQL transformation DAG | In-warehouse transforms | Not a general orchestrator |
+| Единица работы | Задача в DAG | Задача во flow | Asset (набор данных) |
+| Динамические графы | `.expand()` | циклы Python, `.map()` | dynamic outputs, партиции |
+| Сильная сторона | Экосистема, зрелость | Простота, запуск без сервера | Lineage, тестируемость |
+| Слабая сторона | Нагрузка на администрирование | Меньше интеграций | Другая модель мышления |
 
-### Same tiny pipeline in three styles
+Тот же смысл в коде:
 
 ```python
-# Airflow (task-centric)
+# Airflow
 @task
 def extract(): ...
 @task
 def load(x): ...
 load(extract())
-```
 
-```python
-# Prefect (flow = plain Python)
-from prefect import flow, task
-
-@task(retries=3, retry_delay_seconds=10)
-def extract(): ...
-
+# Prefect
 @flow
 def etl():
-    data = extract()
-    load(data)
+    load(extract())
+etl()                       # запуск как обычная функция
 
-etl()          # runs locally, no server needed
-```
-
-```python
-# Dagster (asset-centric: you declare the *data*, not the steps)
-from dagster import asset, Definitions
-
+# Dagster: объявляем данные, зависимости выводятся из аргументов
 @asset
 def raw_sales(): ...
-
 @asset
 def clean_sales(raw_sales): ...
-
-defs = Definitions(assets=[raw_sales, clean_sales])
 ```
 
-### Decision guide
-- Large org, many heterogeneous systems, need standard → **Airflow**.
-- Python-heavy team, dynamic/event-driven flows, fast iteration → **Prefect**.
-- Analytics engineering, lineage and data quality first → **Dagster**.
-- ML training on Kubernetes → **Argo / Kubeflow**.
-- Business processes with long waits/human-in-the-loop → **Temporal**.
+**Как выбрать:** много разных систем и нужен стандарт индустрии: Airflow. Команда пишет на Python, нужна гибкость и быстрый старт: Prefect. Важны lineage, качество данных, dbt: Dagster. Обучение моделей в Kubernetes: Argo/Kubeflow. Долгие бизнес-процессы с ожиданием: Temporal.
 
----
+## Ссылки
 
-## 5. Hands-on (17 min) – see `01_orchestration.ipynb`
-
-| Step | Time | What you do |
-|---|---|---|
-| A | 3 min | Experience a failing "naive" pipeline |
-| B | 6 min | Build a **mini-orchestrator** (~60 lines): topological sort, parallelism, retries with backoff, upstream-failed propagation |
-| C | 3 min | Idempotency & backfill over a date range |
-| D | 5 min | Write a real **Airflow DAG**, parse it, run it with `airflow dags test` |
-
-> The notebook runs in plain Python for parts A–C. Part D has an optional install cell for Airflow (needs a few minutes; may be pre-installed by the instructor).
-
----
-
-## 6. Wrap-up (5 min)
-
-### Key takeaways
-1. Orchestrate = **dependencies + state + retries + history + backfill**.
-2. Everything hinges on **idempotent, parametrized, atomic** tasks.
-3. Airflow = scheduler + executor + metadata DB + workers; DAGs are Python code.
-4. Orchestrators **coordinate**; Spark/dbt/warehouses **compute**.
-5. Tool choice depends on paradigm (task vs. asset vs. event) and team context.
-
-### Quick quiz
-1. Why is `INSERT INTO t SELECT ... WHERE day = CURRENT_DATE` a bad idea in a retried task?
-2. What's the difference between the scheduler and the executor in Airflow?
-3. Why should you not pass a 2 GB DataFrame through XCom? What do you pass instead?
-4. A daily DAG with logical date 2025-03-10: which data does it process and when does it start?
-5. When would Dagster be a better fit than Airflow?
-
-<details>
-<summary>Answers</summary>
-
-1. Not idempotent: every retry/rerun duplicates rows, and it depends on wall-clock time so backfills are wrong. Use `{{ ds }}` and delete-then-insert / MERGE / partition overwrite.
-2. The scheduler decides *what* and *when* to run (creates runs, queues ready tasks); the executor decides *how/where* queued tasks are executed (local process, Celery workers, Kubernetes pods).
-3. XCom is stored in the metadata DB and is meant for small metadata. Write data to object storage/warehouse and pass the URI/table name.
-4. It processes 2025-03-10 00:00 → 2025-03-11 00:00 and starts shortly after 2025-03-11 00:00 (after the interval closes).
-5. When the focus is on data assets, lineage, partitions, data-quality checks and local testability (e.g. dbt-centered analytics platforms).
-</details>
-
-### Take-home assignment (optional, ≈ 2h)
-Build a DAG `weather_pipeline` that:
-1. Fetches the list of 5 cities (task 1) and **maps** one extraction task per city from a public API (e.g. Open-Meteo).
-2. Writes each result to `data/{{ ds }}/{city}.json` (**idempotent** overwrite).
-3. Aggregates the files and writes `data/{{ ds }}/summary.csv`.
-4. Has `retries=3` with exponential backoff and a `trigger_rule="all_done"` notification task.
-5. Is validated by a **pytest `DagBag` test** (no import errors, no cycles, expected task count).
-6. *Bonus:* re-implement the same pipeline in Prefect **or** Dagster and write a 1-page comparison.
-
----
-
-## References & further reading
-
-- Apache Airflow documentation – <https://airflow.apache.org/docs/>
-- Airflow best practices – <https://airflow.apache.org/docs/apache-airflow/stable/best-practices.html>
-- Airflow 3 upgrade guide – <https://airflow.apache.org/docs/apache-airflow/stable/installation/upgrading_to_airflow3.html>
-- Prefect docs – <https://docs.prefect.io>
-- Dagster docs – <https://docs.dagster.io>
-- Harenslak & de Ruiter, *Data Pipelines with Apache Airflow* (Manning)
-- Reis & Housley, *Fundamentals of Data Engineering* (O'Reilly) – chapter on orchestration
-- Python `graphlib` – <https://docs.python.org/3/library/graphlib.html>
+- Документация Airflow: <https://airflow.apache.org/docs/>
+- Лучшие практики Airflow: <https://airflow.apache.org/docs/apache-airflow/stable/best-practices.html>
+- Переход на Airflow 3: <https://airflow.apache.org/docs/apache-airflow/stable/installation/upgrading_to_airflow3.html>
+- Prefect: <https://docs.prefect.io>
+- Dagster: <https://docs.dagster.io>
+- Python `graphlib`: <https://docs.python.org/3/library/graphlib.html>
+- Reis, Housley, *Fundamentals of Data Engineering* (O'Reilly), глава об оркестрации
